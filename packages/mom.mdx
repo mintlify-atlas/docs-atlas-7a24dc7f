@@ -1,0 +1,311 @@
+---
+title: '@mariozechner/pi-mom'
+description: 'Slack bot that delegates messages to the Pi coding agent'
+icon: 'slack'
+---
+
+A Slack bot powered by an LLM that can execute bash commands, read/write files, and interact with your development environment. Mom is **self-managing** - she installs her own tools, programs CLI tools (aka "skills") she can use to help with your workflows and tasks, configures credentials, and maintains her workspace autonomously.
+
+## Features
+
+- **Minimal by Design**: Turn mom into whatever you need. She builds her own tools without pre-built assumptions
+- **Self-Managing**: Installs tools (apk, npm, etc.), writes scripts, configures credentials. Zero setup from you
+- **Slack Integration**: Responds to @mentions in channels and DMs
+- **Full Bash Access**: Execute any command, read/write files, automate workflows
+- **Docker Sandbox**: Isolate mom in a container (recommended for all use)
+- **Persistent Workspace**: All conversation history, files, and tools stored in one directory you control
+- **Working Memory & Custom Tools**: Mom remembers context across sessions and creates workflow-specific CLI tools (aka "skills") for your tasks
+- **Thread-Based Details**: Clean main messages with verbose tool details in threads
+
+## Installation
+
+```bash
+npm install @mariozechner/pi-mom
+```
+
+## Slack App Setup
+
+1. Create a new Slack app at https://api.slack.com/apps
+2. Enable **Socket Mode** (Settings → Socket Mode → Enable)
+3. Generate an **App-Level Token** with `connections:write` scope. This is `MOM_SLACK_APP_TOKEN`
+4. Add **Bot Token Scopes** (OAuth & Permissions):
+   - `app_mentions:read`
+   - `channels:history`
+   - `channels:read`
+   - `chat:write`
+   - `files:read`
+   - `files:write`
+   - `groups:history`
+   - `groups:read`
+   - `im:history`
+   - `im:read`
+   - `im:write`
+   - `users:read`
+5. **Subscribe to Bot Events** (Event Subscriptions):
+   - `app_mention`
+   - `message.channels`
+   - `message.groups`
+   - `message.im`
+6. **Enable Direct Messages** (App Home):
+   - Go to **App Home** in the left sidebar
+   - Under **Show Tabs**, enable the **Messages Tab**
+   - Check **Allow users to send Slash commands and messages from the messages tab**
+7. Install the app to your workspace. Get the **Bot User OAuth Token**. This is `MOM_SLACK_BOT_TOKEN`
+8. Add mom to any channels where you want her to operate
+
+## Quick Start
+
+```bash
+# Set environment variables
+export MOM_SLACK_APP_TOKEN=xapp-...
+export MOM_SLACK_BOT_TOKEN=xoxb-...
+# Option 1: Anthropic API key
+export ANTHROPIC_API_KEY=sk-ant-...
+# Option 2: use /login command in pi agent, then copy/link auth.json to ~/.pi/mom/
+
+# Create Docker sandbox (recommended)
+docker run -d \
+  --name mom-sandbox \
+  -v $(pwd)/data:/workspace \
+  alpine:latest \
+  tail -f /dev/null
+
+# Run mom in Docker mode
+mom --sandbox=docker:mom-sandbox ./data
+
+# Mom will install any tools she needs herself (git, jq, etc.)
+```
+
+## CLI Usage
+
+```bash
+mom [options] <working-directory>
+
+Options:
+  --sandbox=host              Run tools on host (not recommended)
+  --sandbox=docker:<name>     Run tools in Docker container (recommended)
+```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `MOM_SLACK_APP_TOKEN` | Slack app-level token (xapp-...) |
+| `MOM_SLACK_BOT_TOKEN` | Slack bot token (xoxb-...) |
+| `ANTHROPIC_API_KEY` | (Optional) Anthropic API key |
+
+## Authentication
+
+Mom needs credentials for Anthropic API. You have two options:
+
+**Option 1: Environment Variable**
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**Option 2: OAuth Login (Recommended for Claude Pro/Max)**
+- Run interactive coding agent session: `npx @mariozechner/pi-coding-agent`
+- Enter `/login` command
+  - Choose "Anthropic" provider
+  - Follow instructions in the browser
+- Link `auth.json` to mom: `ln -s ~/.pi/agent/auth.json ~/.pi/mom/auth.json`
+
+## How Mom Works
+
+Mom is a Node.js app that runs on your host machine. She connects to Slack via Socket Mode, receives messages, and responds using an LLM-based agent that can create and use tools.
+
+### Per-Channel Conversations
+
+For each channel you add mom to (group channels or DMs), mom maintains a separate conversation history with its own context, memory, and files.
+
+**When a message arrives in a channel:**
+- The message is written to the channel's `log.jsonl`, retaining full channel history
+- If the message has attachments, they are stored in the channel's `attachments/` folder for mom to access
+- Mom can later search the `log.jsonl` file for previous conversations and reference the attachments
+
+**When you @mention mom (or DM her), she:**
+1. Syncs all unseen messages from `log.jsonl` into `context.jsonl`. The context is what mom actually sees when she responds
+2. Loads **memory** from MEMORY.md files (global and channel-specific)
+3. Responds to your request, dynamically using tools to answer it:
+   - Read attachments and analyze them
+   - Invoke command line tools
+   - Write new files or programs
+   - Attach files to her response
+4. Any files or tools mom creates are stored in the channel's directory
+5. Mom's direct reply is stored in `log.jsonl`, while details like tool call results are kept in `context.jsonl`
+
+### Data Directory Structure
+
+You provide mom with a **data directory** (e.g., `./data`) as her workspace:
+
+```
+./data/                         # Your host directory
+  ├── MEMORY.md                 # Global memory (shared across channels)
+  ├── settings.json             # Global settings (compaction, retry, etc.)
+  ├── skills/                   # Global custom CLI tools mom creates
+  ├── C123ABC/                  # Each Slack channel gets a directory
+  │   ├── MEMORY.md             # Channel-specific memory
+  │   ├── log.jsonl             # Full message history (source of truth)
+  │   ├── context.jsonl         # LLM context (synced from log.jsonl)
+  │   ├── attachments/          # Files users shared
+  │   ├── scratch/              # Mom's working directory
+  │   └── skills/               # Channel-specific CLI tools
+  └── D456DEF/                  # DM channels also get directories
+      └── ...
+```
+
+**What's stored:**
+- `log.jsonl`: All channel messages (user messages, bot responses). Source of truth.
+- `context.jsonl`: Messages sent to the LLM. Synced from log.jsonl at each run start.
+- Memory files: Context mom remembers across sessions
+- Custom tools/scripts mom creates (aka "skills")
+- Working files, cloned repos, generated output
+
+### Tools
+
+Mom has access to these tools:
+- **bash**: Execute shell commands. This is her primary tool for getting things done
+- **read**: Read file contents
+- **write**: Create or overwrite files
+- **edit**: Make surgical edits to existing files
+- **attach**: Share files back to Slack
+
+### Bash Execution Environment
+
+**Docker environment (recommended)**:
+- Commands execute inside an isolated Linux container
+- Mom can only access the mounted data directory from your host, plus anything inside the container
+- She installs tools inside the container and knows apk, apt, yum, etc.
+- Your host system is protected
+
+**Host environment**:
+- Commands execute directly on your machine
+- Mom has full access to your system
+- Not recommended. See security section in the README
+
+### Memory System
+
+Mom uses MEMORY.md files to remember basic rules and preferences:
+- **Global memory** (`data/MEMORY.md`): Shared across all channels. Project architecture, coding conventions, communication preferences
+- **Channel memory** (`data/<channel>/MEMORY.md`): Channel-specific context, decisions, ongoing work
+
+Mom automatically reads these files before responding. You can ask her to update memory ("remember that we use tabs not spaces") or edit the files directly yourself.
+
+### Skills (Custom CLI Tools)
+
+Mom can install standard CLI tools (like GitHub CLI, npm packages, etc.) and write custom tools for your specific needs, called skills.
+
+Skills are stored in:
+- `/workspace/skills/`: Global tools available everywhere
+- `/workspace/<channel>/skills/`: Channel-specific tools
+
+Each skill has a `SKILL.md` file with frontmatter and detailed usage instructions:
+
+```markdown
+---
+name: gmail
+description: Read, search, and send Gmail via IMAP/SMTP
+---
+
+# Gmail Skill
+...
+```
+
+When mom responds, she's given the names, descriptions, and file locations of all `SKILL.md` files, so she knows what's available to handle your request.
+
+**Example workflow:** Ask mom to "remind me about the dentist tomorrow at 9am" and she'll create a one-shot event. Ask her to "check my inbox every morning at 9" and she'll create a periodic event.
+
+### Events (Scheduled Wake-ups)
+
+Mom can schedule events that wake her up at specific times or when external things happen. Events are JSON files in `data/events/`.
+
+**Three event types:**
+
+| Type | When it triggers | Use case |
+|------|------------------|----------|
+| **Immediate** | As soon as file is created | Webhooks, external signals, programs mom writes |
+| **One-shot** | At a specific date/time, once | Reminders, scheduled tasks |
+| **Periodic** | On a cron schedule, repeatedly | Daily summaries, inbox checks, recurring tasks |
+
+**Examples:**
+
+```json
+// Immediate - triggers instantly
+{"type": "immediate", "channelId": "C123ABC", "text": "New GitHub issue opened"}
+
+// One-shot - triggers at specified time, then deleted
+{"type": "one-shot", "channelId": "C123ABC", "text": "Remind Mario about dentist", "at": "2025-12-15T09:00:00+01:00"}
+
+// Periodic - triggers on cron schedule, persists until deleted
+{"type": "periodic", "channelId": "C123ABC", "text": "Check inbox", "schedule": "0 9 * * 1-5", "timezone": "Europe/Vienna"}
+```
+
+## Security Considerations
+
+**Mom is a power tool.** With that comes great responsibility. Mom can be abused to exfiltrate sensitive data through direct or indirect prompt injection.
+
+### Prompt Injection Attacks
+
+**Direct prompt injection**: A malicious Slack user asks mom directly to reveal credentials.
+
+**Indirect prompt injection**: Mom fetches malicious content that contains hidden instructions to exfiltrate data.
+
+**Mitigations:**
+- Use dedicated bot accounts with minimal permissions
+- Use read-only tokens when possible
+- Never give production credentials
+- Monitor activity. Check tool calls and results in threads
+- Audit the data directory regularly
+
+### Docker vs Host Mode
+
+**Docker mode** (recommended):
+- Limits mom to the container. She can only access the mounted data directory from your host
+- Credentials are isolated to the container
+- Still vulnerable to credential exfiltration
+
+**Host mode** (not recommended):
+- Mom has full access to your machine
+- Can access SSH keys, config files, anything on your system
+- Only use in disposable VMs
+
+### Access Control
+
+Different teams need different mom instances. Run multiple isolated mom instances for different security contexts:
+
+```bash
+# General team mom (limited access)
+mom --sandbox=docker:mom-general ./data-general
+
+# Executive team mom (full access)
+mom --sandbox=docker:mom-exec ./data-exec
+```
+
+## Development
+
+### Code Structure
+
+- `src/main.ts`: Entry point, CLI arg parsing, handler setup, SlackContext adapter
+- `src/agent.ts`: Agent runner, event handling, tool execution, session management
+- `src/slack.ts`: Slack integration (Socket Mode), backfill, message logging
+- `src/context.ts`: Session manager (context.jsonl), log-to-context sync
+- `src/store.ts`: Channel data persistence, attachment downloads
+- `src/sandbox.ts`: Docker/host sandbox execution
+- `src/tools/`: Tool implementations (bash, read, write, edit, attach)
+
+### Running in Dev Mode
+
+Terminal 1 (root. Watch mode for all packages):
+```bash
+npm run dev
+```
+
+Terminal 2 (mom, with auto-restart):
+```bash
+cd packages/mom
+npx tsx --watch-path src --watch src/main.ts --sandbox=docker:mom-sandbox ./data
+```
+
+## License
+
+MIT

@@ -1,0 +1,319 @@
+---
+title: Interactive Mode
+description: Using Pi in interactive mode with commands and keyboard shortcuts
+---
+
+# Interactive Mode
+
+Pi's interactive mode provides a powerful terminal interface for working with AI agents. The interface consists of four main areas: startup header, message history, input editor, and status footer.
+
+## Interface Overview
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Startup Header                                     │ Shows shortcuts, loaded context files, skills
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  Messages                                           │ Conversation history, tool calls, results
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│  Editor                                             │ Input prompt area (border color = thinking)
+├─────────────────────────────────────────────────────┤
+│  Footer                                             │ Working dir, session, tokens, cost, model
+└─────────────────────────────────────────────────────┘
+```
+
+## Starting Interactive Mode
+
+```bash
+# Basic interactive mode
+pi
+
+# With initial prompt
+pi "List all TypeScript files in src/"
+
+# Continue previous session
+pi -c
+
+# Resume from session selector
+pi -r
+
+# With specific model
+pi --model anthropic/claude-sonnet-4
+
+# With thinking level
+pi --thinking high "Solve this complex problem"
+```
+
+## Editor Features
+
+<Steps>
+  <Step title="File References">
+    Type `@` to open a fuzzy search for project files. Navigate with arrow keys and press Enter to insert the file path.
+    
+    ```bash
+    @src/core/agent.ts  # References the file
+    ```
+  </Step>
+
+  <Step title="Path Completion">
+    Press **Tab** to autocomplete file paths as you type.
+  </Step>
+
+  <Step title="Multi-line Input">
+    Press **Shift+Enter** (or **Ctrl+Enter** on Windows Terminal) to add newlines without submitting.
+  </Step>
+
+  <Step title="Image Input">
+    - **Ctrl+V**: Paste images from clipboard
+    - **Drag & Drop**: Drag image files onto the terminal
+  </Step>
+
+  <Step title="Bash Commands">
+    Execute bash commands directly from the editor:
+    
+    - `!command` - Runs command and sends output to the LLM
+    - `!!command` - Runs command without sending output
+    
+    ```bash
+    !git status          # Sends git status to LLM
+    !!npm install        # Runs silently
+    ```
+  </Step>
+</Steps>
+
+## Built-in Commands
+
+Type `/` in the editor to trigger commands:
+
+### Authentication & Models
+
+| Command | Description |
+|---------|-------------|
+| `/login` | OAuth authentication for providers |
+| `/logout` | Sign out from OAuth providers |
+| `/model` | Open model selector |
+| `/scoped-models` | Enable/disable models for Ctrl+P cycling |
+
+### Session Management
+
+| Command | Description |
+|---------|-------------|
+| `/resume` | Browse and select from previous sessions |
+| `/new` | Start a new session |
+| `/name <name>` | Set display name for current session |
+| `/session` | Show session info (path, tokens, cost) |
+| `/tree` | Navigate session tree and branch points |
+| `/fork` | Create new session from current branch |
+| `/compact [prompt]` | Manually compact context with optional instructions |
+
+### Export & Sharing
+
+| Command | Description |
+|---------|-------------|
+| `/copy` | Copy last assistant message to clipboard |
+| `/export [file]` | Export session to HTML file |
+| `/share` | Upload as private GitHub gist with shareable link |
+
+### Configuration
+
+| Command | Description |
+|---------|-------------|
+| `/settings` | Open settings UI (thinking level, theme, message delivery) |
+| `/reload` | Reload extensions, skills, prompts (themes auto-reload) |
+| `/hotkeys` | Display all keyboard shortcuts |
+| `/changelog` | Show version history |
+
+### Exit
+
+| Command | Description |
+|---------|-------------|
+| `/quit`, `/exit` | Exit Pi |
+
+## Keyboard Shortcuts
+
+Press `/hotkeys` to see all shortcuts. Customize in `~/.pi/agent/keybindings.json`.
+
+### Essential Shortcuts
+
+<Tabs>
+  <Tab title="General">
+    | Key | Action |
+    |-----|--------|
+    | **Ctrl+C** | Clear editor |
+    | **Ctrl+C** (twice) | Quit Pi |
+    | **Escape** | Cancel/abort current operation |
+    | **Escape** (twice) | Open session tree |
+    | **Ctrl+D** | Exit Pi |
+    | **Ctrl+Z** | Suspend (returns to shell) |
+  </Tab>
+
+  <Tab title="Models & Thinking">
+    | Key | Action |
+    |-----|--------|
+    | **Ctrl+L** | Open model selector |
+    | **Ctrl+P** | Cycle to next scoped model |
+    | **Shift+Ctrl+P** | Cycle to previous scoped model |
+    | **Shift+Tab** | Cycle thinking level (off → minimal → low → medium → high → xhigh) |
+  </Tab>
+
+  <Tab title="Display">
+    | Key | Action |
+    |-----|--------|
+    | **Ctrl+O** | Collapse/expand tool output |
+    | **Ctrl+T** | Collapse/expand thinking blocks |
+  </Tab>
+
+  <Tab title="Editor">
+    | Key | Action |
+    |-----|--------|
+    | **Ctrl+G** | Open external editor (uses $VISUAL or $EDITOR) |
+    | **Ctrl+V** | Paste image from clipboard |
+    | **Shift+Enter** | New line (Ctrl+Enter on Windows Terminal) |
+    | **Tab** | Path completion |
+  </Tab>
+</Tabs>
+
+### Advanced Keyboard Shortcuts
+
+For full editing shortcuts (delete word, undo, etc.), see the [keybindings documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/keybindings.md).
+
+## Message Queue
+
+Send messages while the agent is working:
+
+<Steps>
+  <Step title="Steering Messages">
+    Press **Enter** to queue a steering message. It's delivered after the current tool execution, interrupting remaining tools.
+    
+    Use this to redirect the agent mid-turn:
+    ```
+    > Agent is running bash commands...
+    > You type: "Actually, use Python instead"
+    > Press Enter
+    > Agent stops after current command and receives your message
+    ```
+  </Step>
+
+  <Step title="Follow-up Messages">
+    Press **Alt+Enter** to queue a follow-up message. It's delivered only after all work is complete.
+    
+    Use this for new requests:
+    ```
+    > Agent is working...
+    > You type: "Also check the test coverage"
+    > Press Alt+Enter
+    > Agent finishes current work, then receives your message
+    ```
+  </Step>
+
+  <Step title="Managing Queued Messages">
+    - **Escape**: Abort and restore queued messages to editor
+    - **Alt+Up**: Retrieve queued messages back to editor
+  </Step>
+</Steps>
+
+### Queue Configuration
+
+In `/settings` or `~/.pi/agent/settings.json`:
+
+```json
+{
+  "steeringMode": "one-at-a-time",  // or "all"
+  "followUpMode": "one-at-a-time",  // or "all"
+  "transport": "auto"                // or "sse" or "websocket"
+}
+```
+
+- **one-at-a-time** (default): Waits for response between messages
+- **all**: Delivers all queued messages at once
+- **transport**: Connection type for providers with multiple options
+
+## Session Tree Navigation
+
+Press **Escape** twice or use `/tree` to navigate your conversation history:
+
+```
+┌─ Session Tree ────────────────────────────────────┐
+│ 1. User: Initial request               [main]    │
+│ 2. Assistant: Response                           │
+│ 3. User: Follow-up question                      │
+│ 4. Assistant: Response                           │
+│ └─ 5. User: Alternative question      [branch-1] │ <- Select to continue here
+│    6. Assistant: Response                        │
+└──────────────────────────────────────────────────┘
+```
+
+### Tree Controls
+
+- **Type**: Search/filter messages
+- **←/→**: Page through results
+- **Ctrl+O**: Toggle filter modes (default → no-tools → user-only → labeled → all)
+- **L**: Label entry as bookmark
+- **Enter**: Continue from selected point
+
+## Example Workflows
+
+<Accordion title="Starting a New Project">
+  ```bash
+  # Start Pi with high thinking for planning
+  pi --thinking high
+  
+  # In Pi:
+  > "Create a new TypeScript library for parsing markdown"
+  > Agent creates files...
+  > /tree  # Review what was created
+  > /name markdown-parser
+  > /session  # Check session location and stats
+  ```
+</Accordion>
+
+<Accordion title="Continuing Work">
+  ```bash
+  # Resume previous session
+  pi -c
+  
+  # Or select from list
+  pi -r
+  
+  # In Pi:
+  > "Continue implementing the parser"
+  > /model  # Switch to faster model for iteration
+  > Ctrl+P  # Cycle between configured models
+  ```
+</Accordion>
+
+<Accordion title="Branching for Experiments">
+  ```bash
+  # In Pi:
+  > "Let's try a different approach"
+  > /fork  # Creates new session from current point
+  > Agent continues in new branch
+  > /export experiment.html  # Save for later review
+  ```
+</Accordion>
+
+## Tips & Tricks
+
+<Tip>
+  **Use Ctrl+P for quick model switching**. Configure your favorite models with `--models` flag:
+  
+  ```bash
+  pi --models "claude-sonnet-4,claude-haiku,gpt-4o"
+  ```
+</Tip>
+
+<Tip>
+  **Paste large code blocks**. Pi automatically detects large pastes and offers to collapse them to save tokens.
+</Tip>
+
+<Tip>
+  **Label important points** in `/tree` view with the **L** key to create bookmarks for easy navigation.
+</Tip>
+
+<Tip>
+  **Use thinking levels strategically**:
+  - **off/minimal**: Quick tasks, file operations
+  - **medium**: Standard coding tasks
+  - **high/xhigh**: Complex debugging, architecture decisions
+</Tip>

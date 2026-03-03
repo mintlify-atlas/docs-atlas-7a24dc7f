@@ -1,0 +1,158 @@
+---
+title: "Introduction to Pi"
+description: "A minimal terminal coding agent framework that adapts to your workflow with extensions, skills, and packages"
+---
+
+<img
+  className="block dark:hidden"
+  src="https://shittycodingagent.ai/logo.svg"
+  alt="Pi Logo"
+  width="128"
+  height="128"
+/>
+<img
+  className="hidden dark:block"
+  src="https://shittycodingagent.ai/logo.svg"
+  alt="Pi Logo"
+  width="128"
+  height="128"
+/>
+
+# Welcome to Pi
+
+Pi is a minimal terminal coding harness that puts you in control. Unlike other coding agents, Pi doesn't force you into a specific workflow. Instead, you adapt Pi to match how you work — without forking or modifying Pi internals.
+
+## What Makes Pi Different
+
+Pi ships with powerful defaults but intentionally skips features like sub-agents and plan mode. Instead, you can:
+
+- Ask Pi to build exactly what you need
+- Install third-party Pi packages that match your workflow
+- Create custom extensions, skills, and prompt templates
+- Share your customizations via npm or git
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get Pi running in minutes with a simple npm install
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed setup for all platforms and API providers
+  </Card>
+  <Card title="Interactive Mode" icon="terminal" href="/guides/interactive-mode">
+    Learn the powerful terminal interface
+  </Card>
+  <Card title="Customization" icon="puzzle-piece" href="/guides/customization">
+    Extend Pi with custom tools and workflows
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="Four Flexible Modes" icon="sliders">
+    - **Interactive**: Full terminal UI with session management
+    - **Print/JSON**: One-shot responses for scripting
+    - **RPC**: Process integration over stdin/stdout
+    - **SDK**: Embed Pi in your own applications
+  </Accordion>
+
+  <Accordion title="Extensibility First" icon="plug">
+    - **Extensions**: TypeScript modules for custom tools, commands, and UI
+    - **Skills**: On-demand capabilities following Agent Skills standard
+    - **Prompt Templates**: Reusable prompts with variable substitution
+    - **Themes**: Customizable colors and styles with hot-reload
+    - **Pi Packages**: Bundle and share via npm or git
+  </Accordion>
+
+  <Accordion title="Multi-Provider Support" icon="cloud">
+    Pi supports 20+ LLM providers through unified APIs:
+    
+    **Subscriptions (OAuth):**
+    - Anthropic Claude Pro/Max
+    - OpenAI ChatGPT Plus/Pro (Codex)
+    - GitHub Copilot
+    - Google Gemini CLI
+    - Google Antigravity
+    
+    **API Keys:**
+    - Anthropic, OpenAI, Azure OpenAI
+    - Google Gemini, Vertex AI, Amazon Bedrock
+    - Mistral, Groq, Cerebras, xAI
+    - OpenRouter, Vercel AI Gateway, and more
+    - Any OpenAI-compatible API (Ollama, vLLM, LM Studio)
+  </Accordion>
+
+  <Accordion title="Session Management" icon="folder-tree">
+    - Sessions stored as JSONL with tree structure
+    - In-place branching without creating new files
+    - `/tree` command to navigate and switch branches
+    - Manual and automatic context compaction
+    - Export to HTML or share as GitHub gist
+  </Accordion>
+
+  <Accordion title="Built-in Tools" icon="wrench">
+    Pi gives models access to your codebase through tools:
+    - `read` - Read files with offset/limit support
+    - `write` - Create new files
+    - `edit` - Make precise edits to existing files
+    - `bash` - Execute shell commands
+    - `grep`, `find`, `ls` - Optional file search tools
+    
+    Extensions can replace or augment these with custom implementations.
+  </Accordion>
+</AccordionGroup>
+
+## Philosophy
+
+<Note>
+Pi is aggressively extensible so it doesn't have to dictate your workflow. Features that other tools bake in can be built with extensions, skills, or installed from third-party Pi packages.
+</Note>
+
+**No MCP** — Build CLI tools with READMEs (see Skills), or build an extension that adds MCP support.
+
+**No sub-agents** — Spawn Pi instances via tmux, or build your own with extensions, or install a package.
+
+**No permission popups** — Run in a container, or build your own confirmation flow with extensions.
+
+**No plan mode** — Write plans to files, or build it with extensions, or install a package.
+
+**No built-in to-dos** — They confuse models. Use a TODO.md file, or build your own with extensions.
+
+**No background bash** — Use tmux for full observability and direct interaction.
+
+Read the [blog post](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/) for the full rationale.
+
+## Packages Overview
+
+Pi is built as a monorepo with multiple packages:
+
+| Package | Description |
+|---------|-------------|
+| **[@mariozechner/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
+| **[@mariozechner/pi-ai](packages/ai)** | Unified multi-provider LLM API |
+| **[@mariozechner/pi-agent-core](packages/agent-core)** | Agent runtime with tool calling |
+| **[@mariozechner/pi-tui](packages/tui)** | Terminal UI library |
+| **[@mariozechner/pi-web-ui](packages/web-ui)** | Web components for AI chat |
+| **[@mariozechner/pi-mom](packages/mom)** | Slack bot integration |
+| **[@mariozechner/pi-pods](packages/pods)** | CLI for managing vLLM deployments |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="play" href="/quickstart">
+    Install Pi and run your first session
+  </Card>
+  <Card title="Providers & Models" icon="cloud" href="/guides/providers-and-models">
+    Set up your LLM provider authentication
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Understand how Pi works under the hood
+  </Card>
+  <Card title="Examples" icon="code" href="https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent/examples">
+    Browse extension and SDK examples
+  </Card>
+</CardGroup>
+
+<Tip>
+Join the [Discord community](https://discord.com/invite/3cU7Bz4UPx) for support and to share your Pi packages.
+</Tip>

@@ -1,0 +1,720 @@
+---
+title: Customization
+description: Customizing Pi with prompt templates, skills, themes, and packages
+---
+
+# Customization
+
+Pi is designed to adapt to your workflow through prompt templates, skills, themes, and shareable packages. All customizations can be project-specific or global.
+
+## Prompt Templates
+
+Reusable prompts as Markdown files with variable substitution.
+
+### Creating Templates
+
+<Steps>
+  <Step title="Create Template File">
+    Create a `.md` file in:
+    - `~/.pi/agent/prompts/` (global)
+    - `.pi/prompts/` (project-specific)
+    
+    ```markdown
+    <!-- ~/.pi/agent/prompts/review.md -->
+    ---
+    description: Code review with security focus
+    ---
+    
+    Review this code for:
+    - Security vulnerabilities
+    - Performance issues
+    - Best practices violations
+    
+    Focus areas: $ARGUMENTS
+    
+    Provide specific line numbers and suggested fixes.
+    ```
+  </Step>
+
+  <Step title="Use Template">
+    ```bash
+    # In Pi:
+    /review authentication, input validation
+    
+    # Or with file reference:
+    /review @src/auth.ts "session management"
+    ```
+  </Step>
+</Steps>
+
+### Variable Substitution
+
+Templates support bash-style argument substitution:
+
+<Tabs>
+  <Tab title="Basic">
+    ```markdown
+    <!-- prompts/greet.md -->
+    Hello, $1! Welcome to $2.
+    ```
+    
+    Usage:
+    ```
+    /greet Alice "the project"
+    # Expands to: Hello, Alice! Welcome to the project.
+    ```
+  </Tab>
+
+  <Tab title="All Arguments">
+    ```markdown
+    <!-- prompts/search.md -->
+    Search the codebase for: $ARGUMENTS
+    ```
+    
+    Usage:
+    ```
+    /search error handling in services
+    # Expands to: Search the codebase for: error handling in services
+    ```
+    
+    `$@` also works (same as `$ARGUMENTS`).
+  </Tab>
+
+  <Tab title="Argument Slicing">
+    ```markdown
+    <!-- prompts/compare.md -->
+    Compare $1 with ${@:2}
+    ```
+    
+    Usage:
+    ```
+    /compare React Vue Angular Svelte
+    # Expands to: Compare React with Vue Angular Svelte
+    ```
+    
+    Syntax:
+    - `${@:N}`: Arguments from Nth onwards
+    - `${@:N:L}`: L arguments starting from Nth
+  </Tab>
+
+  <Tab title="Positional">
+    ```markdown
+    <!-- prompts/refactor.md -->
+    Refactor $1 to use $2 pattern.
+    Keep $3 functionality intact.
+    ```
+    
+    Usage:
+    ```
+    /refactor UserService dependency-injection existing
+    # Expands to: Refactor UserService to use dependency-injection pattern.
+    # Keep existing functionality intact.
+    ```
+  </Tab>
+</Tabs>
+
+### Template Frontmatter
+
+```markdown
+---
+description: Brief description shown in autocomplete
+custom-field: Any metadata you want
+---
+
+Template content here...
+```
+
+### Loading Templates
+
+<CodeGroup>
+  ```bash Global
+  # Templates in ~/.pi/agent/prompts/ load automatically
+  ls ~/.pi/agent/prompts/
+  # review.md, test.md, debug.md
+  ```
+
+  ```bash Project
+  # Templates in .pi/prompts/ load automatically
+  ls .pi/prompts/
+  # component.md, api.md
+  ```
+
+  ```bash Explicit Path
+  pi --prompt-template /path/to/custom.md
+  pi --prompt-template ./project-prompts/
+  ```
+
+  ```bash Disable Defaults
+  # Load only explicit paths
+  pi --no-prompt-templates --prompt-template ./my-prompts/
+  ```
+</CodeGroup>
+
+## Skills
+
+On-demand capability packages following the [Agent Skills standard](https://agentskills.io).
+
+### Creating Skills
+
+<Steps>
+  <Step title="Create Skill Directory">
+    ```bash
+    mkdir -p ~/.pi/agent/skills/api-testing
+    cd ~/.pi/agent/skills/api-testing
+    ```
+  </Step>
+
+  <Step title="Create SKILL.md">
+    ```markdown
+    <!-- SKILL.md -->
+    ---
+    name: api-testing
+    description: Test REST APIs with comprehensive validation
+    ---
+    
+    # API Testing Skill
+    
+    Use this skill when the user asks to test an API endpoint.
+    
+    ## Steps
+    
+    1. Read the API documentation or code
+    2. Identify endpoints, methods, and expected responses
+    3. Use bash tool to send requests with curl
+    4. Validate:
+       - HTTP status codes
+       - Response schema
+       - Error handling
+       - Edge cases
+    5. Generate test report
+    
+    ## Example
+    
+    ```bash
+    # Test authentication endpoint
+    curl -X POST http://localhost:3000/api/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{"username":"test","password":"test123"}'
+    ```
+    
+    ## Bundled Resources
+    
+    See `./test-templates/` for reusable test scripts.
+    ```
+  </Step>
+
+  <Step title="Add Resources (Optional)">
+    ```bash
+    mkdir test-templates
+    echo '#!/bin/bash\ncurl -X GET "$1" -H "Accept: application/json"' > test-templates/get.sh
+    chmod +x test-templates/get.sh
+    ```
+    
+    Skills can reference bundled files using relative paths.
+  </Step>
+</Steps>
+
+### Skill Frontmatter
+
+```markdown
+---
+name: my-skill              # Must match directory name
+description: What it does   # Required, shown to the model
+disable-model-invocation: false  # If true, only /skill:name works
+---
+```
+
+- **name**: Lowercase, hyphens only, max 64 chars
+- **description**: Max 1024 chars, tells model when to use skill
+- **disable-model-invocation**: Prevents automatic loading (manual `/skill:name` only)
+
+### Using Skills
+
+<Tabs>
+  <Tab title="Automatic">
+    The model loads skills automatically when needed:
+    
+    ```
+    > "Test the /api/users endpoint"
+    > Model sees api-testing skill in available_skills
+    > Model uses read tool to load skill
+    > Model follows skill instructions
+    ```
+  </Tab>
+
+  <Tab title="Manual">
+    Load skill explicitly:
+    
+    ```
+    /skill:api-testing
+    ```
+    
+    Useful for:
+    - Skills with `disable-model-invocation: true`
+    - Forcing skill usage
+    - Testing skills
+  </Tab>
+
+  <Tab title="Command Line">
+    ```bash
+    # Load specific skill
+    pi --skill ~/.pi/agent/skills/api-testing
+    
+    # Load directory of skills
+    pi --skill ./project-skills/
+    
+    # Disable auto-discovery
+    pi --no-skills --skill ./custom-skill/
+    ```
+  </Tab>
+</Tabs>
+
+### Skill Discovery
+
+Skills are discovered from:
+
+1. `~/.pi/agent/skills/` (global)
+2. `~/.agents/skills/` (XDG standard)
+3. `.pi/skills/` (project, from cwd upward)
+4. `.agents/skills/` (project, XDG standard)
+5. Pi packages (see below)
+
+Name collisions: Project skills override global skills.
+
+### Real-World Skill Example
+
+<Accordion title="Database Migration Skill">
+  ```markdown
+  <!-- ~/.pi/agent/skills/db-migration/SKILL.md -->
+  ---
+  name: db-migration
+  description: Create and manage database migrations safely
+  ---
+  
+  # Database Migration Skill
+  
+  Use when the user needs to modify database schema.
+  
+  ## Pre-flight Checks
+  
+  1. Read current schema from `./prisma/schema.prisma` or `./migrations/`
+  2. Understand existing tables, columns, relationships
+  3. Check for:
+     - Data loss risks (dropping columns/tables)
+     - Constraint violations
+     - Index requirements
+  
+  ## Migration Creation
+  
+  1. Generate migration file in `./migrations/` with timestamp
+  2. Include both `up` and `down` SQL
+  3. Add comments explaining changes
+  4. Handle data transformations if needed
+  
+  ## Safety Rules
+  
+  - **NEVER** drop columns without user confirmation
+  - **ALWAYS** use transactions when possible
+  - **ALWAYS** create backups for destructive changes
+  - **TEST** with sample data first
+  
+  ## Example Migration
+  
+  ```sql
+  -- migrations/20250303_add_user_email.sql
+  -- UP
+  BEGIN;
+  ALTER TABLE users ADD COLUMN email VARCHAR(255);
+  CREATE UNIQUE INDEX idx_users_email ON users(email);
+  COMMIT;
+  
+  -- DOWN
+  BEGIN;
+  DROP INDEX idx_users_email;
+  ALTER TABLE users DROP COLUMN email;
+  COMMIT;
+  ```
+  
+  ## Bundled Tools
+  
+  Use `./scripts/test-migration.sh` to validate migrations against test database.
+  ```
+  ```
+</Accordion>
+
+## Themes
+
+Customize Pi's appearance with theme files.
+
+### Built-in Themes
+
+- `dark` (default)
+- `light`
+
+### Creating Custom Themes
+
+<Steps>
+  <Step title="Create Theme File">
+    ```typescript
+    // ~/.pi/agent/themes/nord.ts
+    import { Theme } from '@mariozechner/pi-coding-agent';
+    
+    export const theme: Theme = {
+      name: 'nord',
+      
+      // Editor colors
+      editor: {
+        border: '#5E81AC',
+        borderFocused: '#88C0D0',
+        background: '#2E3440',
+        text: '#ECEFF4',
+        placeholder: '#4C566A',
+      },
+      
+      // Message colors
+      user: '#88C0D0',
+      assistant: '#A3BE8C',
+      system: '#EBCB8B',
+      error: '#BF616A',
+      
+      // Tool colors
+      tool: '#B48EAD',
+      toolOutput: '#8FBCBB',
+      
+      // Thinking colors
+      thinking: '#5E81AC',
+      thinkingText: '#D8DEE9',
+      
+      // UI elements
+      footer: {
+        background: '#3B4252',
+        text: '#ECEFF4',
+        highlight: '#88C0D0',
+      },
+      
+      // Syntax highlighting
+      syntax: {
+        keyword: '#81A1C1',
+        string: '#A3BE8C',
+        number: '#B48EAD',
+        comment: '#616E88',
+        function: '#88C0D0',
+      },
+    };
+    ```
+  </Step>
+
+  <Step title="Activate Theme">
+    ```bash
+    pi
+    /settings  # Select Themes > nord
+    
+    # Or via settings.json:
+    {
+      "theme": "nord"
+    }
+    
+    # Or command line:
+    pi --theme ~/.pi/agent/themes/nord.ts
+    ```
+  </Step>
+</Steps>
+
+### Hot Reloading
+
+Themes hot-reload automatically. Modify the active theme file and see changes instantly in Pi.
+
+### Theme Locations
+
+- `~/.pi/agent/themes/` (global)
+- `.pi/themes/` (project)
+- Explicit: `pi --theme /path/to/theme.ts`
+
+## Pi Packages
+
+Bundle and share extensions, skills, prompts, and themes via npm or git.
+
+### Installing Packages
+
+<CodeGroup>
+  ```bash npm
+  # Install from npm
+  pi install npm:@user/pi-tools
+  
+  # Specific version
+  pi install npm:@user/pi-tools@1.2.3
+  
+  # Project-local
+  pi install npm:@user/pi-tools -l
+  ```
+
+  ```bash git
+  # Install from GitHub
+  pi install git:github.com/user/repo
+  
+  # Specific tag/commit
+  pi install git:github.com/user/repo@v1.0.0
+  
+  # SSH
+  pi install git:git@github.com:user/repo
+  
+  # HTTPS
+  pi install https://github.com/user/repo
+  ```
+</CodeGroup>
+
+### Managing Packages
+
+```bash
+# List installed packages
+pi list
+
+# Update packages (skips pinned versions)
+pi update
+
+# Update specific package
+pi update npm:@user/pi-tools
+
+# Remove package
+pi remove npm:@user/pi-tools
+
+# Configure (enable/disable resources)
+pi config
+```
+
+### Creating Packages
+
+<Steps>
+  <Step title="Initialize Package">
+    ```bash
+    mkdir my-pi-package
+    cd my-pi-package
+    npm init -y
+    ```
+  </Step>
+
+  <Step title="Add Pi Manifest">
+    ```json
+    // package.json
+    {
+      "name": "my-pi-package",
+      "version": "1.0.0",
+      "keywords": ["pi-package"],
+      "pi": {
+        "extensions": ["./extensions"],
+        "skills": ["./skills"],
+        "prompts": ["./prompts"],
+        "themes": ["./themes"]
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Add Resources">
+    ```bash
+    mkdir -p skills/my-skill prompts themes
+    
+    # Create skill
+    cat > skills/my-skill/SKILL.md << 'EOF'
+    ---
+    name: my-skill
+    description: Does something useful
+    ---
+    
+    # My Skill
+    Instructions here...
+    EOF
+    
+    # Create prompt template
+    cat > prompts/template.md << 'EOF'
+    ---
+    description: Quick template
+    ---
+    
+    Do something with $ARGUMENTS
+    EOF
+    ```
+  </Step>
+
+  <Step title="Publish">
+    ```bash
+    # To npm
+    npm publish
+    
+    # To GitHub
+    git init
+    git add .
+    git commit -m "Initial commit"
+    git tag v1.0.0
+    git push origin main --tags
+    ```
+  </Step>
+</Steps>
+
+### Package Auto-Discovery
+
+Without a `pi` field, Pi auto-discovers from conventional directories:
+
+```
+my-package/
+├── extensions/    # Auto-discovered
+├── skills/        # Auto-discovered
+├── prompts/       # Auto-discovered
+└── themes/        # Auto-discovered
+```
+
+### Finding Packages
+
+- [npmjs.com](https://www.npmjs.com/search?q=keywords%3Api-package)
+- [Pi Discord](https://discord.com/channels/1456806362351669492/1457744485428629628)
+- GitHub topic: `pi-package`
+
+<Warning>
+  **Security Notice**: Pi packages run with full system access. Extensions execute arbitrary code, and skills can instruct the model to perform any action. Review source code before installing third-party packages.
+</Warning>
+
+### Package Storage
+
+- Global: `~/.pi/agent/git/` (git), global npm
+- Project: `.pi/git/`, `.pi/npm/` (with `-l` flag)
+
+## Configuration Files
+
+### Global vs Project
+
+<Tabs>
+  <Tab title="Global">
+    `~/.pi/agent/` - Applies to all projects
+    
+    ```bash
+    ~/.pi/agent/
+    ├── settings.json        # Default settings
+    ├── auth.json            # OAuth credentials
+    ├── keybindings.json     # Custom shortcuts
+    ├── models.json          # Custom model definitions
+    ├── prompts/             # Global prompt templates
+    ├── skills/              # Global skills
+    ├── themes/              # Global themes
+    └── sessions/            # Session history
+    ```
+  </Tab>
+
+  <Tab title="Project">
+    `.pi/` - Project-specific overrides
+    
+    ```bash
+    .pi/
+    ├── settings.json        # Project settings
+    ├── prompts/             # Project prompt templates
+    ├── skills/              # Project skills
+    ├── themes/              # Project themes
+    ├── git/                 # Local package installs
+    └── npm/                 # Local package installs
+    ```
+    
+    Project settings override global settings.
+  </Tab>
+</Tabs>
+
+### Environment Variables
+
+```bash
+# Override config directory
+export PI_CODING_AGENT_DIR=~/.config/pi
+
+# Override package directory (for Nix/Guix)
+export PI_PACKAGE_DIR=/nix/store/...
+
+# Disable version check
+export PI_SKIP_VERSION_CHECK=1
+
+# External editor
+export VISUAL=code
+export EDITOR=vim
+```
+
+## Examples
+
+<AccordionGroup>
+  <Accordion title="Project-Specific Workflow">
+    ```bash
+    # In your project
+    mkdir -p .pi/prompts .pi/skills/deploy
+    
+    # Add deployment skill
+    cat > .pi/skills/deploy/SKILL.md << 'EOF'
+    ---
+    name: deploy
+    description: Deploy application to production
+    ---
+    
+    # Deployment Skill
+    
+    1. Run tests: `npm test`
+    2. Build: `npm run build`
+    3. Deploy: `./scripts/deploy.sh`
+    4. Verify: Check health endpoint
+    EOF
+    
+    # Add prompt template
+    cat > .pi/prompts/pr.md << 'EOF'
+    ---
+    description: Generate PR description
+    ---
+    
+    Generate a pull request description for:
+    
+    $ARGUMENTS
+    
+    Include:
+    - Summary of changes
+    - Testing steps
+    - Breaking changes (if any)
+    EOF
+    
+    # Use them
+    pi
+    > /skill:deploy
+    > /pr "Add user authentication"
+    ```
+  </Accordion>
+
+  <Accordion title="Shared Team Package">
+    ```bash
+    # Create team package
+    mkdir team-pi-tools && cd team-pi-tools
+    npm init -y
+    
+    # Add team conventions
+    mkdir -p skills/code-review prompts
+    
+    cat > skills/code-review/SKILL.md << 'EOF'
+    ---
+    name: code-review
+    description: Review code following team standards
+    ---
+    
+    # Code Review Skill
+    
+    Apply team standards from ./CONVENTIONS.md:
+    - TypeScript strict mode
+    - No any types
+    - Functional components
+    - Props interface naming
+    EOF
+    
+    cat > prompts/commit.md << 'EOF'
+    Generate conventional commit message for: $ARGUMENTS
+    
+    Format: type(scope): description
+    Types: feat, fix, docs, style, refactor, test, chore
+    EOF
+    
+    # Publish to internal registry
+    npm publish --registry=https://npm.yourcompany.com
+    
+    # Team members install
+    pi install npm:@yourcompany/team-pi-tools --registry=https://npm.yourcompany.com
+    ```
+  </Accordion>
+</AccordionGroup>

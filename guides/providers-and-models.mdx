@@ -1,0 +1,516 @@
+---
+title: Providers & Models
+description: Supported LLM providers, authentication methods, and model selection
+---
+
+# Providers & Models
+
+Pi supports multiple LLM providers through both API keys and OAuth subscriptions. Each provider offers different models with varying capabilities for vision, reasoning, and context windows.
+
+## Supported Providers
+
+Pi maintains a registry of tool-capable models, updated with every release.
+
+### Subscription-Based (OAuth)
+
+<CardGroup cols={2}>
+  <Card title="Anthropic Claude" icon="anthropic">
+    Pro/Max subscription
+    
+    ```bash
+    pi
+    /login anthropic
+    ```
+  </Card>
+
+  <Card title="OpenAI Codex" icon="openai">
+    ChatGPT Plus/Pro subscription (GPT-5.x models)
+    
+    ```bash
+    pi
+    /login openai-codex
+    ```
+  </Card>
+
+  <Card title="GitHub Copilot" icon="github">
+    Copilot subscription
+    
+    ```bash
+    pi
+    /login github-copilot
+    ```
+  </Card>
+
+  <Card title="Google Gemini CLI" icon="google">
+    Gemini 2.0/2.5 via Cloud Code Assist
+    
+    ```bash
+    pi
+    /login google-gemini-cli
+    ```
+  </Card>
+
+  <Card title="Google Antigravity" icon="google">
+    Free Gemini 3, Claude, GPT-OSS via Google Cloud
+    
+    ```bash
+    pi
+    /login google-antigravity
+    ```
+  </Card>
+</CardGroup>
+
+### API Key-Based
+
+<Tabs>
+  <Tab title="Major Providers">
+    | Provider | Environment Variable | Models |
+    |----------|---------------------|--------|
+    | **Anthropic** | `ANTHROPIC_API_KEY` | Claude 3.5 Sonnet, Opus, Haiku |
+    | **OpenAI** | `OPENAI_API_KEY` | GPT-4o, GPT-4o mini, o1 |
+    | **Google Gemini** | `GEMINI_API_KEY` | Gemini 1.5/2.0 Pro, Flash |
+    | **Google Vertex** | `GOOGLE_CLOUD_PROJECT` + ADC | Gemini via Vertex AI |
+  </Tab>
+
+  <Tab title="High-Performance">
+    | Provider | Environment Variable | Models |
+    |----------|---------------------|--------|
+    | **Groq** | `GROQ_API_KEY` | Llama, Mixtral (fast inference) |
+    | **Cerebras** | `CEREBRAS_API_KEY` | Llama 3.3 (ultra-fast) |
+    | **xAI** | `XAI_API_KEY` | Grok 2, Grok Code |
+  </Tab>
+
+  <Tab title="Aggregators & Enterprise">
+    | Provider | Environment Variable | Notes |
+    |----------|---------------------|-------|
+    | **OpenRouter** | `OPENROUTER_API_KEY` | Access to 100+ models |
+    | **Vercel AI Gateway** | `AI_GATEWAY_API_KEY` | Multi-provider gateway |
+    | **Azure OpenAI** | `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_BASE_URL` | Enterprise OpenAI |
+    | **Amazon Bedrock** | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Claude, Llama via AWS |
+  </Tab>
+
+  <Tab title="Specialized">
+    | Provider | Environment Variable | Notes |
+    |----------|---------------------|-------|
+    | **Mistral** | `MISTRAL_API_KEY` | Mistral Large, Codestral |
+    | **MiniMax** | `MINIMAX_API_KEY` | Chinese LLMs |
+    | **Kimi For Coding** | `KIMI_API_KEY` | Moonshot AI (Anthropic-compatible) |
+    | **ZAI** | `ZAI_API_KEY` | Specialized models |
+  </Tab>
+</Tabs>
+
+## Authentication
+
+### Quick Start with OAuth
+
+<Steps>
+  <Step title="Start Pi">
+    ```bash
+    pi
+    ```
+  </Step>
+
+  <Step title="Login">
+    ```bash
+    /login
+    ```
+    Select your provider from the interactive list.
+  </Step>
+
+  <Step title="Authenticate">
+    Follow the OAuth flow in your browser. Pi will automatically save your credentials to `~/.pi/agent/auth.json`.
+  </Step>
+
+  <Step title="Select Model">
+    ```bash
+    /model
+    ```
+    Choose from available models for your provider.
+  </Step>
+</Steps>
+
+### Using API Keys
+
+<Tabs>
+  <Tab title="Environment Variables">
+    Set environment variables before starting Pi:
+    
+    ```bash
+    # Anthropic
+    export ANTHROPIC_API_KEY=sk-ant-...
+    
+    # OpenAI
+    export OPENAI_API_KEY=sk-...
+    
+    # Google Gemini
+    export GEMINI_API_KEY=AI...
+    
+    # Then start Pi
+    pi
+    ```
+  </Tab>
+
+  <Tab title="Command Line">
+    Pass API key directly:
+    
+    ```bash
+    pi --api-key sk-ant-... --provider anthropic
+    ```
+    
+    <Warning>
+      Command-line API keys are visible in shell history. Use environment variables for better security.
+    </Warning>
+  </Tab>
+
+  <Tab title=".env File">
+    Create `.env` in your project:
+    
+    ```bash
+    # .env
+    ANTHROPIC_API_KEY=sk-ant-...
+    OPENAI_API_KEY=sk-...
+    ```
+    
+    Load with:
+    ```bash
+    source .env && pi
+    ```
+    
+    Or use a tool like `direnv` for automatic loading.
+  </Tab>
+</Tabs>
+
+### Special Authentication Cases
+
+<Accordion title="Google Vertex AI (ADC)">
+  Vertex AI uses Application Default Credentials:
+  
+  ```bash
+  # Local development
+  gcloud auth application-default login
+  export GOOGLE_CLOUD_PROJECT="my-project"
+  export GOOGLE_CLOUD_LOCATION="us-central1"
+  
+  # Production (service account)
+  export GOOGLE_APPLICATION_CREDENTIALS="/path/to/key.json"
+  export GOOGLE_CLOUD_PROJECT="my-project"
+  export GOOGLE_CLOUD_LOCATION="us-central1"
+  
+  pi --provider google-vertex
+  ```
+  
+  See [Google ADC documentation](https://cloud.google.com/docs/authentication/application-default-credentials).
+</Accordion>
+
+<Accordion title="Azure OpenAI">
+  Azure requires resource name or base URL:
+  
+  ```bash
+  export AZURE_OPENAI_API_KEY="your-key"
+  export AZURE_OPENAI_BASE_URL="https://your-resource.openai.azure.com/openai/v1"
+  # Or
+  export AZURE_OPENAI_RESOURCE_NAME="your-resource"
+  
+  # Optional: API version (defaults to v1)
+  export AZURE_OPENAI_API_VERSION="v1"
+  
+  # Optional: Model to deployment mapping
+  export AZURE_OPENAI_DEPLOYMENT_NAME_MAP="gpt-4o=my-deployment,gpt-4o-mini=prod"
+  
+  pi --provider azure-openai
+  ```
+</Accordion>
+
+<Accordion title="Amazon Bedrock">
+  Bedrock uses AWS credentials:
+  
+  ```bash
+  # Option 1: AWS Profile
+  export AWS_PROFILE="my-profile"
+  export AWS_REGION="us-east-1"
+  
+  # Option 2: Access Keys
+  export AWS_ACCESS_KEY_ID="..."
+  export AWS_SECRET_ACCESS_KEY="..."
+  export AWS_REGION="us-east-1"
+  
+  # Option 3: Bearer Token
+  export AWS_BEARER_TOKEN_BEDROCK="..."
+  export AWS_REGION="us-east-1"
+  
+  pi --provider amazon-bedrock
+  ```
+</Accordion>
+
+## Model Selection
+
+### Interactive Selection
+
+Press **Ctrl+L** or use `/model` to open the model selector:
+
+```
+┌─ Select Model ────────────────────────────────────┐
+│ > claude-sonnet                                   │
+│                                                   │
+│ anthropic/claude-sonnet-4-20250514               │
+│ anthropic/claude-opus-4-5                        │
+│ anthropic/claude-3-5-haiku-20241022              │
+│ openai/gpt-4o                                    │
+│ openai/gpt-4o-mini                               │
+│ google/gemini-2.5-flash                          │
+└───────────────────────────────────────────────────┘
+```
+
+### Command Line Selection
+
+<CodeGroup>
+  ```bash Basic
+  pi --provider anthropic --model claude-sonnet-4
+  ```
+
+  ```bash Provider Prefix
+  # No --provider needed with prefix
+  pi --model anthropic/claude-sonnet-4
+  ```
+
+  ```bash Fuzzy Matching
+  # Matches claude-sonnet-4-20250514
+  pi --model sonnet
+  ```
+
+  ```bash With Thinking Level
+  # Shorthand syntax
+  pi --model sonnet:high
+  
+  # Full syntax
+  pi --model sonnet --thinking high
+  ```
+</CodeGroup>
+
+### Cycling Models
+
+Configure models to cycle with **Ctrl+P**:
+
+```bash
+# Specific models
+pi --models "claude-sonnet-4,claude-haiku,gpt-4o"
+
+# All models from a provider
+pi --models "anthropic/*"
+
+# Glob patterns
+pi --models "*sonnet*,*haiku*"
+
+# With thinking levels
+pi --models "sonnet:high,haiku:low,gpt-4o:medium"
+```
+
+In Pi, press:
+- **Ctrl+P**: Next model
+- **Shift+Ctrl+P**: Previous model
+
+### Listing Available Models
+
+```bash
+# List all models
+pi --list-models
+
+# Search models
+pi --list-models sonnet
+pi --list-models "vision"
+pi --list-models "reasoning"
+```
+
+## Model Capabilities
+
+### Vision Support
+
+Models with `input: ["text", "image"]` can process images:
+
+```bash
+# Check if model supports vision
+pi --list-models --model gpt-4o | grep input
+
+# Use with images
+pi --model gpt-4o @screenshot.png "What's in this image?"
+```
+
+### Reasoning/Thinking
+
+Models with `reasoning: true` support extended thinking:
+
+<Tabs>
+  <Tab title="OpenAI (o1, o3, gpt-5)">
+    ```bash
+    pi --model gpt-5-mini --thinking high
+    ```
+    
+    Thinking levels:
+    - `minimal`: Fast responses
+    - `low`, `medium`: Balanced
+    - `high`, `xhigh`: Deep reasoning
+  </Tab>
+
+  <Tab title="Anthropic (Claude Sonnet 4)">
+    ```bash
+    pi --model claude-sonnet-4 --thinking medium
+    ```
+    
+    Extended thinking blocks appear in responses with `<thinking>` tags.
+  </Tab>
+
+  <Tab title="Google (Gemini 2.5)">
+    ```bash
+    pi --model gemini-2.5-flash --thinking medium
+    ```
+    
+    Gemini shows reasoning process before final answers.
+  </Tab>
+</Tabs>
+
+## Default Models
+
+Set default model in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-sonnet-4-20250514",
+  "defaultThinkingLevel": "medium"
+}
+```
+
+Or use `/settings` command in Pi.
+
+## Switching Providers Mid-Session
+
+Pi supports switching models and providers during a conversation:
+
+```bash
+# In Pi:
+> "Explain quantum computing" 
+> (Using claude-sonnet-4)
+> /model
+> (Switch to gpt-4o)
+> "Simplify that explanation"
+> (Using gpt-4o, sees full conversation history)
+```
+
+Thinking blocks from one provider are converted to text with `<thinking>` tags when sent to other providers.
+
+## Cost & Token Tracking
+
+Pi tracks token usage and costs automatically:
+
+```
+┌─ Footer ──────────────────────────────────────────┐
+│ ~/project  session-name                           │
+│ 1.2M / 200K tokens (cached: 800K)                │
+│ $0.15 total ($0.03 this turn)                    │
+│ anthropic/claude-sonnet-4                         │
+└───────────────────────────────────────────────────┘
+```
+
+View detailed stats:
+```bash
+/session  # Shows total tokens, cost, cache usage
+```
+
+## Environment Variables Reference
+
+<Accordion title="All Provider Variables">
+  ```bash
+  # Anthropic
+  ANTHROPIC_API_KEY=sk-ant-...
+  ANTHROPIC_OAUTH_TOKEN=...  # Alternative to API key
+  
+  # OpenAI
+  OPENAI_API_KEY=sk-...
+  
+  # Azure OpenAI
+  AZURE_OPENAI_API_KEY=...
+  AZURE_OPENAI_BASE_URL=https://resource.openai.azure.com/openai/v1
+  AZURE_OPENAI_RESOURCE_NAME=...  # Alternative to base URL
+  AZURE_OPENAI_API_VERSION=v1
+  AZURE_OPENAI_DEPLOYMENT_NAME_MAP=model=deployment,model2=deployment2
+  
+  # Google
+  GEMINI_API_KEY=AI...
+  GOOGLE_CLOUD_PROJECT=my-project  # For Vertex/Gemini CLI
+  GOOGLE_CLOUD_LOCATION=us-central1
+  GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
+  
+  # Amazon Bedrock
+  AWS_PROFILE=my-profile
+  AWS_ACCESS_KEY_ID=...
+  AWS_SECRET_ACCESS_KEY=...
+  AWS_BEARER_TOKEN_BEDROCK=...
+  AWS_REGION=us-east-1
+  
+  # Other Providers
+  GROQ_API_KEY=gsk_...
+  CEREBRAS_API_KEY=...
+  XAI_API_KEY=...
+  OPENROUTER_API_KEY=...
+  AI_GATEWAY_API_KEY=...
+  ZAI_API_KEY=...
+  MISTRAL_API_KEY=...
+  MINIMAX_API_KEY=...
+  KIMI_API_KEY=...
+  
+  # GitHub Copilot
+  COPILOT_GITHUB_TOKEN=ghp_...
+  GH_TOKEN=ghp_...  # Alternative
+  GITHUB_TOKEN=ghp_...  # Alternative
+  
+  # Advanced
+  PI_CACHE_RETENTION=long  # Extend cache: Anthropic 1h, OpenAI 24h
+  PI_AI_ANTIGRAVITY_VERSION=1.23.0  # Override Antigravity version
+  ```
+</Accordion>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Authentication Failed">
+    ```bash
+    # Clear saved credentials
+    rm ~/.pi/agent/auth.json
+    
+    # Re-authenticate
+    pi
+    /login
+    ```
+  </Accordion>
+
+  <Accordion title="Model Not Available">
+    ```bash
+    # Check available models
+    pi --list-models
+    
+    # Ensure you're authenticated
+    pi
+    /login provider-name
+    ```
+  </Accordion>
+
+  <Accordion title="GitHub Copilot Model Not Supported">
+    Enable the model in VS Code first:
+    1. Open VS Code
+    2. Open Copilot Chat
+    3. Click model selector
+    4. Select the model (shows warning icon)
+    5. Click "Enable"
+    6. Try again in Pi
+  </Accordion>
+
+  <Accordion title="Rate Limits">
+    ```bash
+    # Switch to different provider
+    /model
+    
+    # Or use slower model from same provider
+    pi --model claude-haiku  # Cheaper, higher limits
+    ```
+  </Accordion>
+</AccordionGroup>

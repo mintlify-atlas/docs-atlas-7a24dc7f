@@ -1,0 +1,555 @@
+---
+title: 'Tools'
+description: 'Tool definitions, TypeBox schemas, and tool calling'
+---
+
+## Overview
+
+Tools enable LLMs to interact with external systems through function calling. The Pi AI toolkit uses TypeBox schemas for type-safe tool definitions with automatic validation.
+
+## Tool Definition
+
+Define tools with TypeBox schemas:
+
+```typescript
+interface Tool<TParameters extends TSchema = TSchema> {
+  name: string;
+  description: string;
+  parameters: TParameters;
+}
+```
+
+<ParamField path="name" type="string" required>
+  Unique tool identifier. Used by the model to specify which tool to call.
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  Natural language description of what the tool does. Helps the model decide when to use it.
+</ParamField>
+
+<ParamField path="parameters" type="TSchema" required>
+  TypeBox schema defining the tool's parameters. Must be a TypeBox `Type.Object()`.
+</ParamField>
+
+### Example
+
+```typescript
+import { Type, Tool, StringEnum } from '@mariozechner/pi-ai';
+
+// Simple tool with basic parameters
+const getWeatherTool: Tool = {
+  name: 'get_weather',
+  description: 'Get current weather for a location',
+  parameters: Type.Object({
+    location: Type.String({ description: 'City name or coordinates' }),
+    units: StringEnum(['celsius', 'fahrenheit'], { default: 'celsius' })
+  })
+};
+
+// Complex tool with validation
+const bookMeetingTool: Tool = {
+  name: 'book_meeting',
+  description: 'Schedule a meeting with attendees',
+  parameters: Type.Object({
+    title: Type.String({ minLength: 1 }),
+    startTime: Type.String({ format: 'date-time' }),
+    endTime: Type.String({ format: 'date-time' }),
+    attendees: Type.Array(Type.String({ format: 'email' }), { minItems: 1 }),
+    optional: Type.Optional(Type.Boolean())
+  })
+};
+```
+
+## TypeBox Schemas
+
+TypeBox provides runtime type validation and TypeScript type inference.
+
+### Basic Types
+
+```typescript
+import { Type } from '@mariozechner/pi-ai';
+
+// String
+Type.String({ description: 'A string value' })
+Type.String({ minLength: 1, maxLength: 100 })
+Type.String({ pattern: '^[a-z]+$' })
+Type.String({ format: 'email' })  // email, date-time, uri, etc.
+
+// Number
+Type.Number({ description: 'A number' })
+Type.Number({ minimum: 0, maximum: 100 })
+Type.Integer({ multipleOf: 5 })
+
+// Boolean
+Type.Boolean({ default: false })
+
+// Optional fields
+Type.Optional(Type.String())
+```
+
+### StringEnum Helper
+
+<Warning>
+  Use `StringEnum()` instead of `Type.Enum()` for better compatibility with Google's API and other providers that don't support `anyOf`/`const` patterns.
+</Warning>
+
+```typescript
+import { StringEnum } from '@mariozechner/pi-ai';
+
+// Define string enums
+const Operation = StringEnum(['add', 'subtract', 'multiply', 'divide'], {
+  description: 'The operation to perform'
+});
+
+const Priority = StringEnum(['low', 'medium', 'high'], {
+  description: 'Task priority',
+  default: 'medium'
+});
+
+// Use in tool definition
+const calculatorTool: Tool = {
+  name: 'calculate',
+  description: 'Perform arithmetic',
+  parameters: Type.Object({
+    a: Type.Number(),
+    b: Type.Number(),
+    operation: Operation
+  })
+};
+```
+
+### Complex Types
+
+```typescript
+import { Type } from '@mariozechner/pi-ai';
+
+// Arrays
+Type.Array(Type.String())
+Type.Array(Type.Number(), { minItems: 1, maxItems: 10 })
+
+// Objects
+Type.Object({
+  name: Type.String(),
+  age: Type.Number(),
+  email: Type.Optional(Type.String({ format: 'email' }))
+})
+
+// Nested objects
+Type.Object({
+  user: Type.Object({
+    name: Type.String(),
+    address: Type.Object({
+      street: Type.String(),
+      city: Type.String(),
+      zip: Type.String()
+    })
+  }),
+  preferences: Type.Array(Type.String())
+})
+
+// Union types (use with caution - not all providers support)
+Type.Union([
+  Type.String(),
+  Type.Number()
+])
+```
+
+### Type Inference
+
+TypeBox schemas provide automatic TypeScript type inference:
+
+```typescript
+import { Type, Static } from '@mariozechner/pi-ai';
+
+const WeatherParams = Type.Object({
+  location: Type.String(),
+  units: StringEnum(['celsius', 'fahrenheit'])
+});
+
+// Infer TypeScript type from schema
+type WeatherParams = Static<typeof WeatherParams>;
+// Results in: { location: string; units: "celsius" | "fahrenheit" }
+
+// Use with tool implementation
+function getWeather(params: WeatherParams): string {
+  // TypeScript knows params.location is string
+  // and params.units is "celsius" | "fahrenheit"
+  return `Weather for ${params.location}`;
+}
+```
+
+## Tool Calling
+
+When models call tools, they return `ToolCall` objects:
+
+```typescript
+interface ToolCall {
+  type: "toolCall";
+  id: string;
+  name: string;
+  arguments: Record<string, any>;
+  thoughtSignature?: string;  // Google-specific
+}
+```
+
+### Handling Tool Calls
+
+```typescript
+import { getModel, complete, Tool, Type } from '@mariozechner/pi-ai';
+
+const tools: Tool[] = [
+  {
+    name: 'get_time',
+    description: 'Get the current time',
+    parameters: Type.Object({
+      timezone: Type.Optional(Type.String())
+    })
+  }
+];
+
+const context = {
+  messages: [{ role: 'user', content: 'What time is it in New York?' }],
+  tools
+};
+
+const model = getModel('openai', 'gpt-4o-mini');
+const response = await complete(model, context);
+
+// Check for tool calls
+for (const block of response.content) {
+  if (block.type === 'toolCall') {
+    console.log('Tool:', block.name);
+    console.log('ID:', block.id);
+    console.log('Arguments:', block.arguments);
+    
+    // Execute tool
+    const result = block.name === 'get_time'
+      ? new Date().toLocaleString('en-US', {
+          timeZone: block.arguments.timezone || 'America/New_York'
+        })
+      : 'Unknown tool';
+    
+    // Add tool result to context
+    context.messages.push({
+      role: 'toolResult',
+      toolCallId: block.id,
+      toolName: block.name,
+      content: [{ type: 'text', text: result }],
+      isError: false,
+      timestamp: Date.now()
+    });
+  }
+}
+
+// Continue conversation if there were tool calls
+if (response.content.some(b => b.type === 'toolCall')) {
+  const continuation = await complete(model, context);
+  console.log('Assistant:', continuation.content);
+}
+```
+
+### Streaming Tool Calls
+
+Tool arguments are progressively parsed during streaming:
+
+```typescript
+import { getModel, stream } from '@mariozechner/pi-ai';
+
+const s = stream(model, context);
+
+for await (const event of s) {
+  if (event.type === 'toolcall_start') {
+    console.log('Tool call started at index', event.contentIndex);
+  }
+  
+  if (event.type === 'toolcall_delta') {
+    const toolCall = event.partial.content[event.contentIndex];
+    
+    // Arguments are partially parsed - always check for existence
+    if (toolCall.type === 'toolCall' && toolCall.arguments) {
+      // Example: Show file path being written
+      if (toolCall.name === 'write_file' && toolCall.arguments.path) {
+        console.log(`Writing to: ${toolCall.arguments.path}`);
+        
+        // Content might be partial or missing
+        if (toolCall.arguments.content) {
+          console.log(`Preview: ${toolCall.arguments.content.substring(0, 50)}...`);
+        }
+      }
+    }
+  }
+  
+  if (event.type === 'toolcall_end') {
+    // Complete tool call (but not yet validated)
+    const toolCall = event.toolCall;
+    console.log('Tool complete:', toolCall.name, toolCall.arguments);
+  }
+}
+```
+
+<Warning>
+  During `toolcall_delta` events:
+  - Arguments may be incomplete or missing fields
+  - String values may be truncated mid-word
+  - Arrays may be partially populated
+  - At minimum, `arguments` will be an empty object `{}`
+  - Google provider doesn't support streaming - you get one `toolcall_delta` with full arguments
+</Warning>
+
+## Tool Result Messages
+
+Tool results support both text and images:
+
+```typescript
+interface ToolResultMessage<TDetails = any> {
+  role: "toolResult";
+  toolCallId: string;
+  toolName: string;
+  content: (TextContent | ImageContent)[];
+  details?: TDetails;
+  isError: boolean;
+  timestamp: number;
+}
+```
+
+### Text Results
+
+```typescript
+context.messages.push({
+  role: 'toolResult',
+  toolCallId: 'tool_abc123',
+  toolName: 'search_database',
+  content: [{ type: 'text', text: JSON.stringify(results) }],
+  isError: false,
+  timestamp: Date.now()
+});
+```
+
+### Image Results
+
+```typescript
+import { readFileSync } from 'fs';
+
+const imageBuffer = readFileSync('chart.png');
+
+context.messages.push({
+  role: 'toolResult',
+  toolCallId: 'tool_xyz789',
+  toolName: 'generate_chart',
+  content: [
+    { type: 'text', text: 'Generated temperature trends chart' },
+    { type: 'image', data: imageBuffer.toString('base64'), mimeType: 'image/png' }
+  ],
+  isError: false,
+  timestamp: Date.now()
+});
+```
+
+### Error Results
+
+```typescript
+context.messages.push({
+  role: 'toolResult',
+  toolCallId: 'tool_error',
+  toolName: 'broken_tool',
+  content: [{ type: 'text', text: 'Error: Database connection failed' }],
+  isError: true,  // Mark as error
+  timestamp: Date.now()
+});
+```
+
+## Validation
+
+Validate tool arguments against schemas using AJV.
+
+### validateToolCall()
+
+Validate a tool call's arguments:
+
+```typescript
+function validateToolCall(
+  tools: Tool[],
+  toolCall: ToolCall
+): any
+```
+
+<ParamField path="tools" type="Tool[]" required>
+  Array of tool definitions to search.
+</ParamField>
+
+<ParamField path="toolCall" type="ToolCall" required>
+  The tool call to validate.
+</ParamField>
+
+<ResponseField name="arguments" type="any">
+  The validated (and potentially coerced) arguments.
+</ResponseField>
+
+**Throws** `Error` if tool is not found or validation fails.
+
+### Example
+
+```typescript
+import { stream, validateToolCall, Tool, Type } from '@mariozechner/pi-ai';
+
+const tools: Tool[] = [
+  {
+    name: 'calculate',
+    description: 'Perform math',
+    parameters: Type.Object({
+      a: Type.Number(),
+      b: Type.Number(),
+      operation: StringEnum(['add', 'subtract', 'multiply', 'divide'])
+    })
+  }
+];
+
+const s = stream(model, { messages, tools });
+
+for await (const event of s) {
+  if (event.type === 'toolcall_end') {
+    const toolCall = event.toolCall;
+    
+    try {
+      // Validate arguments (throws on invalid)
+      const validatedArgs = validateToolCall(tools, toolCall);
+      
+      // Execute tool with validated args
+      const result = executeCalculator(validatedArgs);
+      
+      context.messages.push({
+        role: 'toolResult',
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        content: [{ type: 'text', text: String(result) }],
+        isError: false,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      // Validation failed - return error so model can retry
+      context.messages.push({
+        role: 'toolResult',
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        content: [{ type: 'text', text: error.message }],
+        isError: true,
+        timestamp: Date.now()
+      });
+    }
+  }
+}
+```
+
+### validateToolArguments()
+
+Validate arguments when you already have the tool:
+
+```typescript
+function validateToolArguments(
+  tool: Tool,
+  toolCall: ToolCall
+): any
+```
+
+Same as `validateToolCall()` but takes the tool directly instead of searching.
+
+## Complete Example
+
+Full tool calling workflow with validation:
+
+```typescript
+import {
+  getModel,
+  stream,
+  validateToolCall,
+  Type,
+  StringEnum,
+  type Tool,
+  type Context
+} from '@mariozechner/pi-ai';
+
+// Define tools
+const calculatorSchema = Type.Object({
+  a: Type.Number({ description: 'First number' }),
+  b: Type.Number({ description: 'Second number' }),
+  operation: StringEnum(['add', 'subtract', 'multiply', 'divide'], {
+    description: 'Operation to perform'
+  })
+});
+
+const calculatorTool: Tool<typeof calculatorSchema> = {
+  name: 'calculate',
+  description: 'Perform basic arithmetic',
+  parameters: calculatorSchema
+};
+
+const tools: Tool[] = [calculatorTool];
+
+// Tool implementation
+function calculate(args: Static<typeof calculatorSchema>): number {
+  const { a, b, operation } = args;
+  switch (operation) {
+    case 'add': return a + b;
+    case 'subtract': return a - b;
+    case 'multiply': return a * b;
+    case 'divide': return a / b;
+  }
+}
+
+// Main loop
+const model = getModel('openai', 'gpt-4o-mini');
+const context: Context = {
+  systemPrompt: 'You are a helpful calculator assistant.',
+  messages: [{ role: 'user', content: 'What is 15 + 27?' }],
+  tools
+};
+
+const s = stream(model, context);
+
+for await (const event of s) {
+  if (event.type === 'text_delta') {
+    process.stdout.write(event.delta);
+  }
+  
+  if (event.type === 'toolcall_end') {
+    const toolCall = event.toolCall;
+    
+    try {
+      // Validate
+      const validatedArgs = validateToolCall(tools, toolCall);
+      
+      // Execute
+      const result = calculate(validatedArgs);
+      
+      // Add result
+      context.messages.push({
+        role: 'toolResult',
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        content: [{ type: 'text', text: String(result) }],
+        isError: false,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      // Validation error
+      context.messages.push({
+        role: 'toolResult',
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        content: [{ type: 'text', text: error.message }],
+        isError: true,
+        timestamp: Date.now()
+      });
+    }
+  }
+}
+
+const response = await s.result();
+context.messages.push(response);
+
+// Continue if tools were called
+if (response.stopReason === 'toolUse') {
+  const continuation = await complete(model, context);
+  console.log('Final answer:', continuation.content);
+}
+```

@@ -1,0 +1,408 @@
+---
+title: 'Models'
+description: 'Model registry, querying, and configuration'
+---
+
+## Overview
+
+The Pi AI toolkit includes a comprehensive model registry with automatic model discovery for all supported providers. Models are strongly typed and include metadata about capabilities, pricing, and API configuration.
+
+## getModel()
+
+Retrieve a specific model from the registry.
+
+```typescript
+function getModel<
+  TProvider extends KnownProvider,
+  TModelId extends keyof (typeof MODELS)[TProvider]
+>(
+  provider: TProvider,
+  modelId: TModelId
+): Model<ModelApi<TProvider, TModelId>>
+```
+
+<ParamField path="provider" type="KnownProvider" required>
+  The provider name. Fully typed with autocomplete support.
+  
+  Supported providers: `'openai'`, `'anthropic'`, `'google'`, `'google-vertex'`, `'google-gemini-cli'`, `'amazon-bedrock'`, `'azure-openai-responses'`, `'openai-codex'`, `'github-copilot'`, `'xai'`, `'groq'`, `'cerebras'`, `'mistral'`, `'openrouter'`, `'vercel-ai-gateway'`, `'zai'`, `'minimax'`, `'minimax-cn'`, `'huggingface'`, `'kimi-coding'`, and more.
+</ParamField>
+
+<ParamField path="modelId" type="string" required>
+  The model identifier. Autocomplete suggests valid models for the provider.
+  
+  Examples:
+  - OpenAI: `'gpt-4o'`, `'gpt-4o-mini'`, `'o3-mini'`
+  - Anthropic: `'claude-sonnet-4-20250514'`, `'claude-3-5-haiku-20241022'`
+  - Google: `'gemini-2.5-flash'`, `'gemini-2.0-flash-exp'`
+</ParamField>
+
+<ResponseField name="Model" type="Model<TApi>">
+  A fully typed model object containing metadata and configuration.
+</ResponseField>
+
+### Example
+
+```typescript
+import { getModel } from '@mariozechner/pi-ai';
+
+// TypeScript provides autocomplete for both provider and model
+const model = getModel('openai', 'gpt-4o-mini');
+
+console.log(model.name);              // "GPT-4o mini"
+console.log(model.api);               // "openai-responses"
+console.log(model.contextWindow);     // 128000
+console.log(model.maxTokens);         // 16384
+console.log(model.reasoning);         // false
+console.log(model.input);             // ["text", "image"]
+console.log(model.cost.input);        // 0.15 ($/million tokens)
+console.log(model.cost.output);       // 0.6 ($/million tokens)
+```
+
+## getProviders()
+
+Get all available providers.
+
+```typescript
+function getProviders(): KnownProvider[]
+```
+
+<ResponseField name="providers" type="KnownProvider[]">
+  Array of all registered provider names.
+</ResponseField>
+
+### Example
+
+```typescript
+import { getProviders } from '@mariozechner/pi-ai';
+
+const providers = getProviders();
+console.log(providers);
+// ["openai", "anthropic", "google", "xai", "groq", ...]
+```
+
+## getModels()
+
+Get all models from a specific provider.
+
+```typescript
+function getModels<TProvider extends KnownProvider>(
+  provider: TProvider
+): Model<ModelApi<TProvider, keyof (typeof MODELS)[TProvider]>>[]
+```
+
+<ParamField path="provider" type="KnownProvider" required>
+  The provider name.
+</ParamField>
+
+<ResponseField name="models" type="Model[]">
+  Array of all models from the provider.
+</ResponseField>
+
+### Example
+
+```typescript
+import { getModels } from '@mariozechner/pi-ai';
+
+const anthropicModels = getModels('anthropic');
+
+for (const model of anthropicModels) {
+  console.log(`${model.id}: ${model.name}`);
+  console.log(`  Context: ${model.contextWindow.toLocaleString()} tokens`);
+  console.log(`  Vision: ${model.input.includes('image')}`);
+  console.log(`  Reasoning: ${model.reasoning}`);
+  console.log(`  Cost: $${model.cost.input}/$${model.cost.output} per million tokens`);
+}
+```
+
+## Model Type
+
+The `Model` interface contains all metadata for a model.
+
+```typescript
+interface Model<TApi extends Api> {
+  id: string;
+  name: string;
+  api: TApi;
+  provider: Provider;
+  baseUrl: string;
+  reasoning: boolean;
+  input: ("text" | "image")[];
+  cost: {
+    input: number;      // $/million tokens
+    output: number;     // $/million tokens
+    cacheRead: number;  // $/million tokens
+    cacheWrite: number; // $/million tokens
+  };
+  contextWindow: number;
+  maxTokens: number;
+  headers?: Record<string, string>;
+  compat?: OpenAICompletionsCompat | OpenAIResponsesCompat;
+}
+```
+
+<ParamField path="id" type="string">
+  Model identifier used with the provider's API.
+</ParamField>
+
+<ParamField path="name" type="string">
+  Human-readable model name.
+</ParamField>
+
+<ParamField path="api" type="Api">
+  The API protocol this model uses. Examples: `"openai-completions"`, `"anthropic-messages"`, `"google-generative-ai"`.
+</ParamField>
+
+<ParamField path="provider" type="Provider">
+  Provider name (e.g., `"openai"`, `"anthropic"`).
+</ParamField>
+
+<ParamField path="baseUrl" type="string">
+  Base URL for API requests.
+</ParamField>
+
+<ParamField path="reasoning" type="boolean">
+  Whether the model supports thinking/reasoning capabilities.
+</ParamField>
+
+<ParamField path="input" type="('text' | 'image')[]">
+  Supported input types. Check `model.input.includes('image')` for vision support.
+</ParamField>
+
+<ParamField path="cost" type="object">
+  Pricing in dollars per million tokens.
+  
+  - `input`: Input token cost
+  - `output`: Output token cost
+  - `cacheRead`: Cache read cost (for prompt caching)
+  - `cacheWrite`: Cache write cost (for prompt caching)
+</ParamField>
+
+<ParamField path="contextWindow" type="number">
+  Maximum context length in tokens.
+</ParamField>
+
+<ParamField path="maxTokens" type="number">
+  Maximum output tokens per request.
+</ParamField>
+
+<ParamField path="headers" type="Record<string, string>">
+  Optional custom headers for all requests to this model.
+</ParamField>
+
+<ParamField path="compat" type="OpenAICompletionsCompat | OpenAIResponsesCompat">
+  Compatibility settings for OpenAI-compatible APIs. See [Custom Models](#custom-models) below.
+</ParamField>
+
+## Custom Models
+
+Create custom model configurations for local servers or custom endpoints:
+
+```typescript
+import { Model, stream } from '@mariozechner/pi-ai';
+
+// Example: Ollama using OpenAI-compatible API
+const ollamaModel: Model<'openai-completions'> = {
+  id: 'llama-3.1-8b',
+  name: 'Llama 3.1 8B (Ollama)',
+  api: 'openai-completions',
+  provider: 'ollama',
+  baseUrl: 'http://localhost:11434/v1',
+  reasoning: false,
+  input: ['text'],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 128000,
+  maxTokens: 32000
+};
+
+// Use the custom model
+const response = await stream(ollamaModel, context, {
+  apiKey: 'dummy'  // Ollama doesn't need a real key
+});
+```
+
+### Custom Headers Example
+
+```typescript
+// Custom endpoint with authentication headers
+const proxyModel: Model<'anthropic-messages'> = {
+  id: 'claude-sonnet-4',
+  name: 'Claude Sonnet 4 (Proxied)',
+  api: 'anthropic-messages',
+  provider: 'custom-proxy',
+  baseUrl: 'https://proxy.example.com/v1',
+  reasoning: true,
+  input: ['text', 'image'],
+  cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  contextWindow: 200000,
+  maxTokens: 8192,
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+    'X-Custom-Auth': 'bearer-token-here'
+  }
+};
+```
+
+### OpenAI Compatibility Settings
+
+For OpenAI-compatible APIs with non-standard behavior, use the `compat` field:
+
+```typescript
+const customModel: Model<'openai-completions'> = {
+  id: 'custom-model',
+  name: 'Custom Model',
+  api: 'openai-completions',
+  provider: 'custom',
+  baseUrl: 'https://api.custom.com/v1',
+  reasoning: false,
+  input: ['text', 'image'],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 128000,
+  maxTokens: 16384,
+  compat: {
+    supportsStore: false,                    // Provider doesn't support 'store' field
+    supportsDeveloperRole: false,            // Use 'system' instead of 'developer'
+    maxTokensField: 'max_tokens',            // Use 'max_tokens' instead of 'max_completion_tokens'
+    requiresToolResultName: true,            // Tool results require 'name' field
+    supportsUsageInStreaming: false,         // No token usage in streaming
+    requiresThinkingAsText: true,            // Convert thinking to <thinking> tags
+    requiresMistralToolIds: true,            // Normalize tool IDs to 9 chars
+    thinkingFormat: 'zai'                    // Use zai-style thinking format
+  }
+};
+```
+
+<ParamField path="compat.supportsStore" type="boolean" default="true">
+  Whether the provider supports the `store` field.
+</ParamField>
+
+<ParamField path="compat.supportsDeveloperRole" type="boolean" default="true">
+  Whether the provider supports `developer` role (vs `system`).
+</ParamField>
+
+<ParamField path="compat.supportsReasoningEffort" type="boolean" default="true">
+  Whether the provider supports `reasoning_effort` parameter.
+</ParamField>
+
+<ParamField path="compat.supportsUsageInStreaming" type="boolean" default="true">
+  Whether streaming responses include token usage via `stream_options`.
+</ParamField>
+
+<ParamField path="compat.supportsStrictMode" type="boolean" default="true">
+  Whether the provider supports `strict` in tool definitions.
+</ParamField>
+
+<ParamField path="compat.maxTokensField" type="'max_completion_tokens' | 'max_tokens'" default="'max_completion_tokens'">
+  Which field name to use for max tokens.
+</ParamField>
+
+<ParamField path="compat.requiresToolResultName" type="boolean" default="false">
+  Whether tool results require the `name` field.
+</ParamField>
+
+<ParamField path="compat.requiresAssistantAfterToolResult" type="boolean" default="false">
+  Whether a user message after tool results requires an assistant message in between.
+</ParamField>
+
+<ParamField path="compat.requiresThinkingAsText" type="boolean" default="false">
+  Whether thinking blocks must be converted to text with `<thinking>` delimiters.
+</ParamField>
+
+<ParamField path="compat.requiresMistralToolIds" type="boolean" default="false">
+  Whether tool call IDs must be normalized to Mistral format (exactly 9 alphanumeric chars).
+</ParamField>
+
+<ParamField path="compat.thinkingFormat" type="'openai' | 'zai' | 'qwen'" default="'openai'">
+  Format for reasoning parameter:
+  - `"openai"`: Uses `reasoning_effort`
+  - `"zai"`: Uses `thinking: { type: "enabled" }`
+  - `"qwen"`: Uses `enable_thinking: boolean`
+</ParamField>
+
+## Provider APIs
+
+Each model uses a specific API protocol. Common APIs:
+
+<ResponseField name="openai-completions" type="Api">
+  OpenAI Chat Completions API. Used by OpenAI, Mistral, xAI, Groq, Cerebras, and OpenAI-compatible providers.
+</ResponseField>
+
+<ResponseField name="openai-responses" type="Api">
+  OpenAI Responses API. Used by OpenAI's latest models including GPT-5.x and o3.
+</ResponseField>
+
+<ResponseField name="anthropic-messages" type="Api">
+  Anthropic Messages API. Used by Claude models.
+</ResponseField>
+
+<ResponseField name="google-generative-ai" type="Api">
+  Google Generative AI API. Used by Gemini models via Google AI Studio.
+</ResponseField>
+
+<ResponseField name="google-vertex" type="Api">
+  Google Vertex AI API. Used by Gemini models via Google Cloud Vertex AI.
+</ResponseField>
+
+<ResponseField name="bedrock-converse-stream" type="Api">
+  Amazon Bedrock Converse Stream API. Used by models on AWS Bedrock.
+</ResponseField>
+
+<ResponseField name="azure-openai-responses" type="Api">
+  Azure OpenAI Responses API. Used by models on Azure OpenAI.
+</ResponseField>
+
+## Utility Functions
+
+### calculateCost()
+
+Calculate costs for a given usage.
+
+```typescript
+function calculateCost<TApi extends Api>(
+  model: Model<TApi>,
+  usage: Usage
+): Usage["cost"]
+```
+
+### Example
+
+```typescript
+import { getModel, calculateCost } from '@mariozechner/pi-ai';
+
+const model = getModel('openai', 'gpt-4o-mini');
+const usage = {
+  input: 1000,
+  output: 500,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 1500,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+};
+
+const cost = calculateCost(model, usage);
+console.log(`Total cost: $${cost.total.toFixed(4)}`);
+```
+
+### supportsXhigh()
+
+Check if a model supports the `xhigh` thinking level.
+
+```typescript
+function supportsXhigh<TApi extends Api>(model: Model<TApi>): boolean
+```
+
+Currently supported by:
+- GPT-5.2 and GPT-5.3 model families
+- Anthropic Opus 4.6 models (xhigh maps to adaptive effort "max")
+
+### modelsAreEqual()
+
+Compare two models for equality.
+
+```typescript
+function modelsAreEqual<TApi extends Api>(
+  a: Model<TApi> | null | undefined,
+  b: Model<TApi> | null | undefined
+): boolean
+```
+
+Compares both `id` and `provider` fields. Returns `false` if either model is null/undefined.

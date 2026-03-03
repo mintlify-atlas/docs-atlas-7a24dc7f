@@ -1,0 +1,486 @@
+---
+title: "Session Management"
+description: "Session lifecycle, branching, and compaction"
+---
+
+## Overview
+
+Pi sessions are append-only conversation trees stored as JSONL files. Sessions support:
+
+- Persistent conversation history
+- Non-destructive branching (try different approaches)
+- Context compaction (summarize old context when approaching limits)
+- Session forking (copy from another project)
+
+## Session Structure
+
+### JSONL Format
+
+Each line is a JSON object representing an entry:
+
+```jsonl
+{"type":"session","version":3,"id":"abc123","timestamp":"2024-01-01T00:00:00.000Z","cwd":"/home/user/project"}
+{"type":"message","id":"def456","parentId":null,"timestamp":"2024-01-01T00:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Hello"}],"timestamp":1704067200000}}
+{"type":"message","id":"ghi789","parentId":"def456","timestamp":"2024-01-01T00:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Hi!"}],"timestamp":1704067205000}}
+```
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:27`
+
+### Entry Types
+
+Sessions contain multiple entry types:
+
+```typescript
+type SessionEntry =
+  | SessionMessageEntry      // User, assistant, or toolResult messages
+  | ThinkingLevelChangeEntry // Thinking level changes
+  | ModelChangeEntry         // Model changes
+  | CompactionEntry          // Context compaction summaries
+  | BranchSummaryEntry       // Branch summaries
+  | CustomEntry              // Extension state (not sent to LLM)
+  | CustomMessageEntry       // Extension messages (sent to LLM)
+  | LabelEntry               // User-defined bookmarks
+  | SessionInfoEntry;        // Session metadata (display name)
+```
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:136`
+
+## Tree Structure
+
+Sessions use `id` and `parentId` to form a tree:
+
+```
+Session Header
+  ├─ Entry A (parentId: null)
+  │   ├─ Entry B (parentId: A)
+  │   │   └─ Entry C (parentId: B)  ← leaf
+  │   └─ Entry D (parentId: A)       ← branch point
+  │       └─ Entry E (parentId: D)  ← alternate branch
+  └─ Entry F (parentId: null)       ← separate root
+```
+
+The **leaf pointer** tracks the current position. Appending creates a child of the current leaf.
+
+### Branching
+
+Branching moves the leaf pointer without modifying history:
+
+```typescript
+import { SessionManager } from "@mariozechner/pi-coding-agent";
+
+const session = SessionManager.create(process.cwd());
+
+// Append some messages
+session.appendMessage(userMessage1);   // Entry A
+session.appendMessage(assistantMsg1);  // Entry B (child of A)
+session.appendMessage(userMessage2);   // Entry C (child of B)
+
+// Branch from Entry A
+session.branch("entry-a-id");
+
+// Next append creates a child of A (not C)
+session.appendMessage(userMessage3);   // Entry D (child of A)
+```
+
+**Result:**
+```
+A
+├─ B
+│  └─ C
+└─ D  ← new leaf
+```
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:1111`
+
+## Session Lifecycle
+
+### Creating Sessions
+
+```typescript
+import { SessionManager } from "@mariozechner/pi-coding-agent";
+
+// Create new session (auto-generates file path)
+const session = SessionManager.create(process.cwd());
+
+// Open existing session
+const session = SessionManager.open("/path/to/session.jsonl");
+
+// Continue most recent session
+const session = SessionManager.continueRecent(process.cwd());
+
+// Fork from another project
+const session = SessionManager.forkFrom(
+  "/other/project/session.jsonl",
+  process.cwd()
+);
+```
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:1246`
+
+### Session Directories
+
+By default, sessions are stored under `~/.pi/agent/sessions/`:
+
+```
+~/.pi/agent/sessions/
+├── --home-user-project1--/
+│   ├── 2024-01-01T12-00-00-000Z_abc123.jsonl
+│   └── 2024-01-02T09-30-00-000Z_def456.jsonl
+└── --home-user-project2--/
+    └── 2024-01-03T14-15-00-000Z_ghi789.jsonl
+```
+
+Each directory is encoded from the working directory path.
+
+### Appending Entries
+
+```typescript
+// Append messages
+session.appendMessage({
+  role: "user",
+  content: [{ type: "text", text: "Hello" }],
+  timestamp: Date.now(),
+});
+
+// Append model changes
+session.appendModelChange("anthropic", "claude-sonnet-4-20250514");
+
+// Append thinking level changes
+session.appendThinkingLevelChange("high");
+
+// Append custom entries (extension state)
+session.appendCustomEntry("my-extension", { state: "data" });
+
+// Append custom messages (sent to LLM)
+session.appendCustomMessageEntry(
+  "context",
+  "Additional context",
+  true,  // display in UI
+  { source: "external" }
+);
+```
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:818`
+
+## Context Building
+
+The session manager builds the LLM context by walking from the leaf to the root:
+
+```typescript
+const { messages, thinkingLevel, model } = session.buildSessionContext();
+
+// Or build from a specific entry
+const context = session.buildSessionContext(entryId);
+```
+
+### Compaction Handling
+
+When a compaction entry is encountered:
+
+1. Emit the summary as a `compactionSummary` message
+2. Emit kept messages (from `firstKeptEntryId` up to the compaction)
+3. Emit messages after the compaction
+
+```typescript
+// Example path with compaction:
+[
+  Entry A (user),
+  Entry B (assistant),
+  Entry C (user),
+  Entry D (compaction, firstKeptEntryId: C),  ← summary point
+  Entry E (user),
+  Entry F (assistant)
+]
+
+// Resulting messages:
+[
+  { role: "compactionSummary", summary: "..." },  // From Entry D
+  { role: "user", ... },                          // Entry C
+  { role: "user", ... },                          // Entry E
+  { role: "assistant", ... }                      // Entry F
+]
+```
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:306`
+
+## Compaction
+
+Compaction summarizes old context to make room for new conversations.
+
+### When Compaction Triggers
+
+Compaction triggers automatically when:
+
+```typescript
+contextTokens > contextWindow - reserveTokens
+```
+
+Default settings:
+- `reserveTokens`: 16384 (reserve for new conversation)
+- `keepRecentTokens`: 20000 (keep recent messages)
+
+**Location:** `packages/coding-agent/src/core/compaction/compaction.ts:114`
+
+### Compaction Algorithm
+
+1. **Find cut point:** Walk backwards from newest, accumulate message sizes until reaching `keepRecentTokens`
+
+2. **Generate summary:** Use LLM to create structured summary:
+```markdown
+## Goal
+[What is the user trying to accomplish?]
+
+## Constraints & Preferences
+- [User requirements]
+
+## Progress
+### Done
+- [x] Completed tasks
+
+### In Progress
+- [ ] Current work
+
+## Key Decisions
+- **Decision**: Rationale
+
+## Next Steps
+1. What should happen next
+
+## Critical Context
+- Important data/examples
+
+## Files
+- Read: file1.ts, file2.ts
+- Modified: file3.ts
+```
+
+3. **Create compaction entry:** Append to session with summary and `firstKeptEntryId`
+
+**Location:** `packages/coding-agent/src/core/compaction/compaction.ts:705`
+
+### Manual Compaction
+
+```typescript
+import { AgentSession } from "@mariozechner/pi-coding-agent";
+
+const session = new AgentSession({ /* ... */ });
+
+// Compact with optional custom instructions
+const result = await session.compact(
+  "Focus on architectural decisions"
+);
+
+console.log("Compacted from", result.tokensBefore, "tokens");
+console.log("Summary:", result.summary);
+```
+
+### Extension-Provided Compaction
+
+Extensions can override compaction:
+
+```typescript
+pi.on("session_before_compact", async (event, ctx) => {
+  const { preparation, signal } = event;
+  
+  // Generate custom summary
+  const summary = await generateStructuredSummary(
+    preparation.messagesToSummarize,
+    signal
+  );
+  
+  return {
+    compaction: {
+      summary,
+      firstKeptEntryId: preparation.firstKeptEntryId,
+      tokensBefore: preparation.tokensBefore,
+      details: { customData: "..." },
+    },
+  };
+});
+```
+
+**Location:** `packages/coding-agent/src/core/extensions/types.ts:414`
+
+## Session Navigation
+
+### Tree Traversal
+
+```typescript
+// Get the full tree structure
+const tree = session.getTree();
+
+// Walk from specific entry to root
+const path = session.getBranch(entryId);
+
+// Get all entries (flat list)
+const entries = session.getEntries();
+
+// Get specific entry
+const entry = session.getEntry(entryId);
+
+// Get direct children
+const children = session.getChildren(entryId);
+```
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:1062`
+
+### Labels
+
+Label entries for navigation:
+
+```typescript
+// Set label
+session.appendLabelChange(entryId, "Before refactor");
+
+// Get label
+const label = session.getLabel(entryId);
+
+// Clear label
+session.appendLabelChange(entryId, undefined);
+```
+
+Labels appear in the tree:
+
+```typescript
+interface SessionTreeNode {
+  entry: SessionEntry;
+  children: SessionTreeNode[];
+  label?: string;  // Resolved from latest LabelEntry
+}
+```
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:995`
+
+## Branch Summarization
+
+When branching, optionally summarize the abandoned path:
+
+```typescript
+import { AgentSession } from "@mariozechner/pi-coding-agent";
+
+const session = new AgentSession({ /* ... */ });
+
+// Navigate to different branch with summary
+await session.navigateTree(entryId, {
+  summarize: true,
+  customInstructions: "Focus on why we're changing direction",
+  label: "Tried async approach",
+});
+```
+
+This creates a `BranchSummaryEntry` that:
+- Captures context from the abandoned path
+- Gets injected as a `branchSummary` message in the new path
+- Allows the LLM to understand what was tried before
+
+**Location:** `packages/coding-agent/src/core/compaction/branch-summarization.ts`
+
+## Session Metadata
+
+### Display Names
+
+Set user-friendly names for sessions:
+
+```typescript
+session.appendSessionInfo("Refactor authentication");
+
+const name = session.getSessionName();
+// "Refactor authentication"
+```
+
+Display names appear in session selectors and lists.
+
+### Session Info
+
+Query session metadata:
+
+```typescript
+const sessions = await SessionManager.list(process.cwd());
+
+for (const info of sessions) {
+  console.log(info.name);              // Display name
+  console.log(info.path);              // File path
+  console.log(info.cwd);               // Working directory
+  console.log(info.created);           // Creation date
+  console.log(info.modified);          // Last activity
+  console.log(info.messageCount);      // Total messages
+  console.log(info.firstMessage);      // First user message
+  console.log(info.parentSessionPath); // Parent (if forked)
+}
+```
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:164`
+
+## Session Forking
+
+Fork sessions between projects:
+
+```typescript
+// Fork session from another project into current project
+const session = SessionManager.forkFrom(
+  "/other/project/sessions/session.jsonl",
+  process.cwd(),
+  "/path/to/target/sessions"  // optional
+);
+```
+
+Forking:
+- Copies all entries from the source session
+- Updates the `cwd` to the target directory
+- Stores `parentSession` reference to the source
+- Generates a new session ID
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:1292`
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use labels for important points">
+    Label entries before major changes:
+    
+    ```typescript
+    session.appendLabelChange(entryId, "Before database migration");
+    ```
+  </Accordion>
+  
+  <Accordion title="Set display names early">
+    Name sessions based on the task:
+    
+    ```typescript
+    session.appendSessionInfo("Add user authentication");
+    ```
+  </Accordion>
+  
+  <Accordion title="Branch instead of editing prompts">
+    To try different approaches, branch from the decision point:
+    
+    ```typescript
+    // Instead of editing the last user message
+    session.branch(previousEntryId);
+    await session.prompt("Try async approach");
+    ```
+  </Accordion>
+  
+  <Accordion title="Summarize when branching">
+    Capture why you're changing direction:
+    
+    ```typescript
+    await session.navigateTree(entryId, {
+      summarize: true,
+      customInstructions: "Sync approach had race conditions",
+      label: "Tried sync approach",
+    });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Understand the system architecture
+  </Card>
+  <Card title="Extensions" icon="puzzle-piece" href="/concepts/extensions">
+    Build custom extensions
+  </Card>
+</CardGroup>

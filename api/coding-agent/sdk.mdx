@@ -1,0 +1,234 @@
+---
+title: SDK API
+description: Core SDK functions for creating agent sessions and managing tools
+---
+
+## createAgentSession()
+
+Create an agent session with automatic discovery of extensions, skills, and tools.
+
+```typescript
+import { createAgentSession } from '@mariozechner/pi-coding-agent';
+
+const { session, extensionsResult } = await createAgentSession({
+  cwd: process.cwd(),
+  model: myModel,
+  tools: codingTools,
+});
+```
+
+### Parameters
+
+<ParamField path="options" type="CreateAgentSessionOptions">
+  Configuration for the agent session
+
+  <Expandable title="properties">
+    <ParamField path="cwd" type="string" default="process.cwd()">
+      Working directory for project-local discovery
+    </ParamField>
+
+    <ParamField path="agentDir" type="string" default="~/.pi/agent">
+      Global config directory
+    </ParamField>
+
+    <ParamField path="authStorage" type="AuthStorage">
+      Auth storage for credentials. Default: `AuthStorage.create(agentDir/auth.json)`
+    </ParamField>
+
+    <ParamField path="modelRegistry" type="ModelRegistry">
+      Model registry. Default: `new ModelRegistry(authStorage, agentDir/models.json)`
+    </ParamField>
+
+    <ParamField path="model" type="Model<any>">
+      Model to use. Default: from settings, else first available
+    </ParamField>
+
+    <ParamField path="thinkingLevel" type="ThinkingLevel">
+      Thinking level. Default: from settings, else 'medium' (clamped to model capabilities)
+    </ParamField>
+
+    <ParamField path="scopedModels" type="Array<{ model: Model<any>; thinkingLevel: ThinkingLevel }>">
+      Models available for cycling (Ctrl+P in interactive mode)
+    </ParamField>
+
+    <ParamField path="tools" type="Tool[]" default="codingTools">
+      Built-in tools to use. Default: `[read, bash, edit, write]`
+    </ParamField>
+
+    <ParamField path="customTools" type="ToolDefinition[]">
+      Custom tools to register in addition to built-in tools
+    </ParamField>
+
+    <ParamField path="resourceLoader" type="ResourceLoader">
+      Resource loader. When omitted, `DefaultResourceLoader` is used
+    </ParamField>
+
+    <ParamField path="sessionManager" type="SessionManager">
+      Session manager. Default: `SessionManager.create(cwd)`
+    </ParamField>
+
+    <ParamField path="settingsManager" type="SettingsManager">
+      Settings manager. Default: `SettingsManager.create(cwd, agentDir)`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Returns
+
+<ResponseField name="CreateAgentSessionResult" type="object">
+  <Expandable title="properties">
+    <ResponseField name="session" type="AgentSession">
+      The created agent session
+    </ResponseField>
+
+    <ResponseField name="extensionsResult" type="LoadExtensionsResult">
+      Extensions result for UI context setup in interactive mode
+    </ResponseField>
+
+    <ResponseField name="modelFallbackMessage" type="string | undefined">
+      Warning if session was restored with a different model than saved
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Examples
+
+#### Minimal Usage
+
+Uses all defaults: discovers skills, extensions, tools, and context files from cwd and `~/.pi/agent`.
+
+```typescript
+import { createAgentSession } from '@mariozechner/pi-coding-agent';
+
+const { session } = await createAgentSession();
+
+session.subscribe((event) => {
+  if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
+    process.stdout.write(event.assistantMessageEvent.delta);
+  }
+});
+
+await session.prompt('What files are in the current directory?');
+```
+
+#### With Explicit Model
+
+```typescript
+import { getModel } from '@mariozechner/pi-ai';
+import { createAgentSession } from '@mariozechner/pi-coding-agent';
+
+const { session } = await createAgentSession({
+  model: getModel('anthropic', 'claude-opus-4-5'),
+  thinkingLevel: 'high',
+});
+```
+
+#### Full Control
+
+```typescript
+import { createAgentSession, DefaultResourceLoader, SessionManager } from '@mariozechner/pi-coding-agent';
+import { getAgentDir } from '@mariozechner/pi-coding-agent';
+
+const loader = new DefaultResourceLoader({
+  cwd: process.cwd(),
+  agentDir: getAgentDir(),
+  settingsManager: SettingsManager.create(),
+});
+await loader.reload();
+
+const { session } = await createAgentSession({
+  model: myModel,
+  tools: [readTool, bashTool],
+  resourceLoader: loader,
+  sessionManager: SessionManager.inMemory(),
+});
+```
+
+## Tool Factories
+
+When using a custom `cwd`, you must use tool factory functions to ensure tools resolve paths relative to your cwd, not `process.cwd()`.
+
+### Pre-built Tools
+
+These use `process.cwd()` as the working directory:
+
+```typescript
+import {
+  readTool,
+  bashTool,
+  editTool,
+  writeTool,
+  grepTool,
+  findTool,
+  lsTool,
+  codingTools,      // [read, bash, edit, write]
+  readOnlyTools,    // [read, grep, find, ls]
+  allBuiltInTools,  // All built-in tools
+} from '@mariozechner/pi-coding-agent';
+```
+
+### Tool Factories (for custom cwd)
+
+```typescript
+import {
+  createCodingTools,
+  createReadOnlyTools,
+  createReadTool,
+  createBashTool,
+  createEditTool,
+  createWriteTool,
+  createGrepTool,
+  createFindTool,
+  createLsTool,
+} from '@mariozechner/pi-coding-agent';
+
+const customCwd = '/path/to/project';
+
+// Full coding toolset for custom directory
+await createAgentSession({
+  cwd: customCwd,
+  tools: createCodingTools(customCwd),
+});
+
+// Individual tools for custom directory
+await createAgentSession({
+  cwd: customCwd,
+  tools: [
+    createReadTool(customCwd),
+    createBashTool(customCwd),
+    createGrepTool(customCwd),
+  ],
+});
+```
+
+### Tool Sets
+
+<ParamField path="codingTools" type="Tool[]">
+  Full access mode: `[read, bash, edit, write]`
+</ParamField>
+
+<ParamField path="readOnlyTools" type="Tool[]">
+  Read-only exploration: `[read, grep, find, ls]`
+</ParamField>
+
+<ParamField path="allBuiltInTools" type="Record<ToolName, Tool>">
+  All available built-in tools as a keyed object
+</ParamField>
+
+## Type Exports
+
+```typescript
+export type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+  ExtensionFactory,
+  SlashCommandInfo,
+  SlashCommandLocation,
+  SlashCommandSource,
+  ToolDefinition,
+  PromptTemplate,
+  Skill,
+  Tool,
+};
+```

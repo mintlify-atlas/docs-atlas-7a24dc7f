@@ -1,0 +1,333 @@
+---
+title: "Architecture"
+description: "System architecture and how packages work together"
+---
+
+## Overview
+
+Pi is a modular AI agent toolkit framework built as a monorepo with clear separation of concerns. The architecture follows a layered approach where higher-level packages build on foundational abstractions.
+
+## Package Structure
+
+```
+packages/
+├── ai/              # LLM provider abstraction
+├── agent/           # Core agent loop and types
+├── coding-agent/    # Agent runtime with tools and sessions
+└── tui/             # Terminal UI components
+```
+
+### Core Layers
+
+The framework is organized into three main layers:
+
+```
+┌─────────────────────────────────────┐
+│      coding-agent (Runtime)         │
+│  - AgentSession                     │
+│  - Tools (bash, read, edit, write)  │
+│  - SessionManager                   │
+│  - ExtensionSystem                  │
+│  - Compaction                       │
+└─────────────────────────────────────┘
+           ↓ uses
+┌─────────────────────────────────────┐
+│        agent (Loop Logic)           │
+│  - Agent class                      │
+│  - agentLoop / agentLoopContinue    │
+│  - Message types                    │
+│  - Tool execution                   │
+└─────────────────────────────────────┘
+           ↓ uses
+┌─────────────────────────────────────┐
+│      ai (LLM Providers)             │
+│  - streamSimple                     │
+│  - Provider implementations         │
+│  - Model registry                   │
+│  - Token counting                   │
+└─────────────────────────────────────┘
+```
+
+## Key Classes
+
+### Agent (`@mariozechner/pi-agent-core`)
+
+The `Agent` class orchestrates LLM interactions with tool execution:
+
+```typescript
+import { Agent } from "@mariozechner/pi-agent-core";
+import { getModel } from "@mariozechner/pi-ai";
+
+const agent = new Agent({
+  initialState: {
+    model: getModel("anthropic", "claude-sonnet-4-20250514"),
+    systemPrompt: "You are a helpful coding assistant.",
+    tools: [readTool, bashTool, editTool, writeTool],
+    thinkingLevel: "medium",
+  },
+  convertToLlm: (messages) => messages.filter(
+    m => m.role === "user" || m.role === "assistant" || m.role === "toolResult"
+  ),
+});
+
+// Subscribe to events
+agent.subscribe((event) => {
+  if (event.type === "message_update") {
+    console.log("Token:", event.assistantMessageEvent);
+  } else if (event.type === "tool_execution_start") {
+    console.log("Tool call:", event.toolName, event.args);
+  }
+});
+
+// Send prompts
+await agent.prompt("List all TypeScript files");
+```
+
+**Key responsibilities:**
+- Execute the agent loop (LLM → tool calls → tool results → LLM)
+- Manage streaming state
+- Handle tool execution
+- Support steering (interrupt mid-run) and follow-up messages
+- Provider-agnostic LLM interaction
+
+**Location:** `packages/agent/src/agent.ts:96`
+
+### AgentSession (`@mariozechner/pi-coding-agent`)
+
+Builds on `Agent` to add session persistence, compaction, and extension support:
+
+```typescript
+import { AgentSession } from "@mariozechner/pi-coding-agent";
+import { SessionManager } from "@mariozechner/pi-coding-agent";
+
+const sessionManager = SessionManager.create(process.cwd());
+const agentSession = new AgentSession({
+  agent,
+  sessionManager,
+  settingsManager,
+  cwd: process.cwd(),
+  resourceLoader,
+  modelRegistry,
+});
+
+// Prompt with automatic session persistence
+await agentSession.prompt("Read package.json");
+
+// Manual compaction
+const result = await agentSession.compact();
+
+// Switch to a different session file
+await agentSession.switchSession("path/to/session.jsonl");
+```
+
+**Key responsibilities:**
+- Session lifecycle (new, resume, fork, branch)
+- Automatic message persistence to JSONL
+- Context compaction when approaching context limits
+- Extension system integration
+- Model/thinking level management
+- Resource loading (skills, prompts, themes)
+
+**Location:** `packages/coding-agent/src/core/agent-session.ts:213`
+
+### SessionManager (`@mariozechner/pi-coding-agent`)
+
+Manages append-only session trees stored as JSONL:
+
+```typescript
+import { SessionManager } from "@mariozechner/pi-coding-agent";
+
+// Create new session
+const session = SessionManager.create(process.cwd());
+
+// Append messages
+session.appendMessage({
+  role: "user",
+  content: [{ type: "text", text: "Hello" }],
+  timestamp: Date.now(),
+});
+
+// Branch from earlier entry
+session.branch(entryId);
+
+// Build context for LLM
+const { messages, thinkingLevel, model } = session.buildSessionContext();
+```
+
+**Session structure:**
+- Append-only JSONL file
+- Tree structure via `id`/`parentId` fields
+- Leaf pointer tracks current position
+- Supports branching without modifying history
+
+**Location:** `packages/coding-agent/src/core/session-manager.ts:663`
+
+## Message Flow
+
+### User Input → Agent Response
+
+```
+1. User sends prompt
+   ↓
+2. AgentSession.prompt()
+   - Expands templates/skills
+   - Validates model & API key
+   - Calls Agent.prompt()
+   ↓
+3. Agent.prompt()
+   - Queues message(s)
+   - Starts agent loop
+   ↓
+4. agentLoop()
+   - Converts messages via convertToLlm
+   - Calls streamSimple (LLM provider)
+   - Streams response tokens
+   ↓
+5. Tool calls extracted
+   - Agent executes tools sequentially
+   - Each tool returns AgentToolResult
+   - Results appended as toolResult messages
+   ↓
+6. Loop continues if more tool calls
+   - Or stops if no tools / max iterations
+   ↓
+7. SessionManager persists messages
+   - Appends to JSONL file
+   - Updates tree structure
+```
+
+## Event System
+
+The framework emits events at multiple levels:
+
+### Agent Events
+
+```typescript
+agent.subscribe((event) => {
+  switch (event.type) {
+    case "agent_start":
+      // Agent loop started
+      break;
+    case "turn_start":
+      // New turn (LLM call) started
+      break;
+    case "message_start":
+      // Message started (user, assistant, or toolResult)
+      break;
+    case "message_update":
+      // Token streamed (assistant only)
+      break;
+    case "message_end":
+      // Message completed
+      break;
+    case "tool_execution_start":
+      // Tool started executing
+      break;
+    case "tool_execution_end":
+      // Tool completed
+      break;
+    case "turn_end":
+      // Turn completed
+      break;
+    case "agent_end":
+      // Agent loop finished
+      break;
+  }
+});
+```
+
+**Location:** `packages/agent/src/types.ts:177`
+
+### Extension Events
+
+Extensions can hook into additional lifecycle events:
+
+```typescript
+pi.on("session_start", async (event, ctx) => {
+  // Initialize extension state
+});
+
+pi.on("before_agent_start", async (event, ctx) => {
+  // Inject context before LLM call
+  return {
+    message: { customType: "context", content: "...", display: true },
+  };
+});
+
+pi.on("tool_call", async (event, ctx) => {
+  // Intercept tool calls
+  if (event.toolName === "bash" && event.input.command.includes("rm -rf")) {
+    return { block: true, reason: "Dangerous command" };
+  }
+});
+```
+
+**Location:** `packages/coding-agent/src/core/extensions/types.ts:797`
+
+## Dependency Flow
+
+Packages depend on each other as follows:
+
+```
+coding-agent
+  ├─> @mariozechner/pi-agent-core
+  ├─> @mariozechner/pi-ai
+  └─> @mariozechner/pi-tui
+
+agent
+  └─> @mariozechner/pi-ai
+
+ai
+  └─> (no internal dependencies)
+
+tui
+  └─> (no internal dependencies)
+```
+
+This ensures:
+- **ai** package is provider-agnostic and reusable
+- **agent** package has pure agent loop logic
+- **coding-agent** brings it all together with tools, sessions, and UI
+- **tui** provides terminal components for interactive mode
+
+## Configuration
+
+Configuration flows from multiple sources:
+
+```
+CLI flags
+  ↓
+Environment variables (.env)
+  ↓
+Settings file (~/.pi/agent/settings.jsonl)
+  ↓
+Defaults
+```
+
+Each layer overrides the previous. Extensions can register custom CLI flags:
+
+```typescript
+pi.registerFlag("my-flag", {
+  type: "string",
+  description: "Custom flag for my extension",
+  default: "value",
+});
+
+const value = pi.getFlag("my-flag");
+```
+
+**Location:** `packages/coding-agent/src/core/settings-manager.ts`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tools" icon="wrench" href="/concepts/tools">
+    Learn about the tool system
+  </Card>
+  <Card title="Extensions" icon="puzzle-piece" href="/concepts/extensions">
+    Build custom extensions
+  </Card>
+  <Card title="Sessions" icon="folder-tree" href="/concepts/sessions">
+    Session management and branching
+  </Card>
+</CardGroup>

@@ -1,0 +1,448 @@
+---
+title: 'Tools'
+description: 'Tool interface and execution for agent function calling'
+---
+
+## Overview
+
+Tools allow agents to execute functions and interact with external systems. The `AgentTool` interface extends the base `Tool` interface from `@mariozechner/pi-ai` with execution capabilities and UI metadata.
+
+## AgentTool Interface
+
+```typescript
+import type { AgentTool } from '@mariozechner/pi-agent-core';
+import { Type } from '@sinclair/typebox';
+
+const myTool: AgentTool<typeof mySchema, MyDetailsType> = {
+  label: 'Human-readable name',
+  name: 'function_name',
+  description: 'What this tool does',
+  parameters: mySchema,
+  execute: async (toolCallId, params, signal, onUpdate) => {
+    // Implementation
+    return { content: [...], details: {...} };
+  }
+};
+```
+
+### Properties
+
+<ParamField path="label" type="string" required>
+  A human-readable label for the tool to be displayed in UI.
+  
+  ```typescript
+  label: 'File Search'
+  ```
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  The function name used by the LLM to invoke the tool. Must be unique within the agent's tool set.
+  
+  ```typescript
+  name: 'search_files'
+  ```
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  Description of what the tool does. Used by the LLM to decide when to call the tool.
+  
+  ```typescript
+  description: 'Search for files matching a pattern in the workspace'
+  ```
+</ParamField>
+
+<ParamField path="parameters" type="TSchema" required>
+  TypeBox schema defining the tool's input parameters. Must be a TypeBox object schema.
+  
+  ```typescript
+  import { Type } from '@sinclair/typebox';
+  
+  parameters: Type.Object({
+    pattern: Type.String({ description: 'Glob pattern to match' }),
+    maxResults: Type.Optional(Type.Number({ description: 'Max results to return' }))
+  })
+  ```
+</ParamField>
+
+<ParamField path="execute" type="(toolCallId: string, params: Static<TParameters>, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback<TDetails>) => Promise<AgentToolResult<TDetails>>" required>
+  Function that executes the tool logic.
+  
+  **Parameters:**
+  - `toolCallId`: Unique identifier for this tool call
+  - `params`: Validated parameters matching the schema
+  - `signal`: Optional AbortSignal for cancellation
+  - `onUpdate`: Optional callback for streaming partial results
+  
+  **Returns:**
+  An `AgentToolResult` containing content blocks and details.
+</ParamField>
+
+## AgentToolResult
+
+```typescript
+interface AgentToolResult<T> {
+  content: (TextContent | ImageContent)[];
+  details: T;
+}
+```
+
+<ResponseField name="content" type="(TextContent | ImageContent)[]" required>
+  Content blocks that will be sent back to the LLM. Supports text and images.
+  
+  ```typescript
+  content: [
+    { type: 'text', text: 'Found 3 files matching pattern' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: '...' } }
+  ]
+  ```
+</ResponseField>
+
+<ResponseField name="details" type="T" required>
+  Arbitrary data to be displayed in UI or logged. Not sent to the LLM.
+  
+  ```typescript
+  details: {
+    files: ['foo.ts', 'bar.ts'],
+    totalMatches: 3,
+    searchTime: 42
+  }
+  ```
+</ResponseField>
+
+## Creating Tools
+
+### Simple Tool
+
+```typescript
+import { Type } from '@sinclair/typebox';
+import type { AgentTool } from '@mariozechner/pi-agent-core';
+
+const calculateSchema = Type.Object({
+  expression: Type.String({ description: 'Mathematical expression to evaluate' })
+});
+
+const calculateTool: AgentTool<typeof calculateSchema, undefined> = {
+  label: 'Calculator',
+  name: 'calculate',
+  description: 'Evaluate mathematical expressions',
+  parameters: calculateSchema,
+  execute: async (toolCallId, args) => {
+    try {
+      const result = eval(args.expression);
+      return {
+        content: [{ type: 'text', text: `${args.expression} = ${result}` }],
+        details: undefined
+      };
+    } catch (e) {
+      throw new Error(`Invalid expression: ${e.message}`);
+    }
+  }
+};
+```
+
+### Tool with Detailed Output
+
+```typescript
+import { Type } from '@sinclair/typebox';
+import type { AgentTool } from '@mariozechner/pi-agent-core';
+
+interface WeatherDetails {
+  temperature: number;
+  condition: string;
+  humidity: number;
+  location: string;
+}
+
+const weatherSchema = Type.Object({
+  location: Type.String({ description: 'City name' }),
+  units: Type.Optional(Type.Union([
+    Type.Literal('celsius'),
+    Type.Literal('fahrenheit')
+  ]))
+});
+
+const weatherTool: AgentTool<typeof weatherSchema, WeatherDetails> = {
+  label: 'Weather',
+  name: 'get_weather',
+  description: 'Get current weather for a location',
+  parameters: weatherSchema,
+  execute: async (toolCallId, args) => {
+    // Fetch from weather API
+    const data = await fetchWeather(args.location, args.units);
+    
+    return {
+      content: [{
+        type: 'text',
+        text: `Weather in ${data.location}: ${data.condition}, ${data.temperature}°${args.units === 'celsius' ? 'C' : 'F'}`
+      }],
+      details: {
+        temperature: data.temperature,
+        condition: data.condition,
+        humidity: data.humidity,
+        location: data.location
+      }
+    };
+  }
+};
+```
+
+### Tool with Streaming Updates
+
+```typescript
+import { Type } from '@sinclair/typebox';
+import type { AgentTool, AgentToolUpdateCallback } from '@mariozechner/pi-agent-core';
+
+interface FileSearchDetails {
+  files: string[];
+  totalMatches: number;
+  searchTime: number;
+}
+
+const searchSchema = Type.Object({
+  pattern: Type.String({ description: 'Glob pattern to match files' }),
+  path: Type.Optional(Type.String({ description: 'Directory to search in' }))
+});
+
+const searchTool: AgentTool<typeof searchSchema, FileSearchDetails> = {
+  label: 'File Search',
+  name: 'search_files',
+  description: 'Search for files matching a pattern',
+  parameters: searchSchema,
+  execute: async (toolCallId, args, signal, onUpdate) => {
+    const startTime = Date.now();
+    const files: string[] = [];
+    
+    // Stream results as they're found
+    for await (const file of searchFiles(args.pattern, args.path)) {
+      if (signal?.aborted) {
+        throw new Error('Search cancelled');
+      }
+      
+      files.push(file);
+      
+      // Send partial update
+      onUpdate?.({
+        content: [{ 
+          type: 'text', 
+          text: `Found ${files.length} files so far...` 
+        }],
+        details: {
+          files: [...files],
+          totalMatches: files.length,
+          searchTime: Date.now() - startTime
+        }
+      });
+    }
+    
+    // Final result
+    return {
+      content: [{
+        type: 'text',
+        text: `Found ${files.length} files matching ${args.pattern}:\n${files.join('\n')}`
+      }],
+      details: {
+        files,
+        totalMatches: files.length,
+        searchTime: Date.now() - startTime
+      }
+    };
+  }
+};
+```
+
+### Tool with Cancellation Support
+
+```typescript
+import { Type } from '@sinclair/typebox';
+import type { AgentTool } from '@mariozechner/pi-agent-core';
+
+const downloadSchema = Type.Object({
+  url: Type.String({ description: 'URL to download' })
+});
+
+const downloadTool: AgentTool<typeof downloadSchema, { size: number }> = {
+  label: 'Download',
+  name: 'download_file',
+  description: 'Download a file from a URL',
+  parameters: downloadSchema,
+  execute: async (toolCallId, args, signal) => {
+    const controller = new AbortController();
+    
+    // Forward abort signal
+    if (signal) {
+      signal.addEventListener('abort', () => controller.abort());
+    }
+    
+    const response = await fetch(args.url, { signal: controller.signal });
+    const data = await response.arrayBuffer();
+    
+    return {
+      content: [{
+        type: 'text',
+        text: `Downloaded ${data.byteLength} bytes from ${args.url}`
+      }],
+      details: { size: data.byteLength }
+    };
+  }
+};
+```
+
+## Error Handling
+
+Tools can throw errors which will be caught by the agent loop and sent back to the LLM:
+
+```typescript
+const myTool: AgentTool<typeof schema> = {
+  // ...
+  execute: async (toolCallId, args) => {
+    if (!args.requiredField) {
+      throw new Error('requiredField is missing');
+    }
+    
+    try {
+      const result = await riskyOperation(args);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+        details: result
+      };
+    } catch (e) {
+      // This error will be caught and sent to the LLM
+      throw new Error(`Operation failed: ${e.message}`);
+    }
+  }
+};
+```
+
+When a tool throws an error:
+1. The agent loop catches it
+2. Creates a tool result message with `isError: true`
+3. Sends the error message back to the LLM
+4. The LLM can decide how to handle it (retry, give up, etc.)
+
+## Registering Tools
+
+Tools are registered with the agent via the `tools` property:
+
+```typescript
+import { Agent } from '@mariozechner/pi-agent-core';
+
+const agent = new Agent({
+  initialState: {
+    tools: [calculateTool, weatherTool, searchTool]
+  }
+});
+
+// Or update tools later
+agent.setTools([calculateTool, weatherTool]);
+```
+
+## Tool Execution Events
+
+The agent emits events during tool execution that can be used for UI updates:
+
+```typescript
+agent.subscribe((event) => {
+  switch (event.type) {
+    case 'tool_execution_start':
+      console.log(`Starting ${event.toolName} with args:`, event.args);
+      break;
+      
+    case 'tool_execution_update':
+      console.log(`Update from ${event.toolName}:`, event.partialResult);
+      break;
+      
+    case 'tool_execution_end':
+      if (event.isError) {
+        console.error(`Tool ${event.toolName} failed:`, event.result);
+      } else {
+        console.log(`Tool ${event.toolName} completed:`, event.result);
+      }
+      break;
+  }
+});
+```
+
+## Best Practices
+
+### 1. Clear Descriptions
+
+Write clear, concise descriptions that help the LLM understand when to use the tool:
+
+```typescript
+// Good
+description: 'Search files by glob pattern (e.g., **/*.ts for all TypeScript files)'
+
+// Bad
+description: 'Search'
+```
+
+### 2. Descriptive Parameters
+
+Add descriptions to all parameters:
+
+```typescript
+parameters: Type.Object({
+  pattern: Type.String({ 
+    description: 'Glob pattern (e.g., **/*.ts, src/**/*.json)' 
+  }),
+  caseSensitive: Type.Optional(Type.Boolean({ 
+    description: 'Whether to match case-sensitively (default: false)' 
+  }))
+})
+```
+
+### 3. Meaningful Labels
+
+Use human-friendly labels for UI display:
+
+```typescript
+label: 'File Search'  // Good
+label: 'search_files' // Bad - this is the function name
+```
+
+### 4. Structured Details
+
+Use the details field for structured data that UIs can render:
+
+```typescript
+details: {
+  files: ['foo.ts', 'bar.ts'],
+  matches: 2,
+  searchTime: 42
+}
+```
+
+### 5. Handle Cancellation
+
+Respect the AbortSignal for long-running operations:
+
+```typescript
+execute: async (toolCallId, args, signal) => {
+  for (const item of largeDataset) {
+    if (signal?.aborted) {
+      throw new Error('Operation cancelled');
+    }
+    // Process item
+  }
+}
+```
+
+### 6. Stream Progress
+
+Use onUpdate for operations that take time:
+
+```typescript
+execute: async (toolCallId, args, signal, onUpdate) => {
+  let progress = 0;
+  const total = items.length;
+  
+  for (const item of items) {
+    progress++;
+    onUpdate?.({
+      content: [{ type: 'text', text: `Processing ${progress}/${total}...` }],
+      details: { progress, total }
+    });
+    await processItem(item);
+  }
+}
+```

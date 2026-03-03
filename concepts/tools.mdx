@@ -1,0 +1,507 @@
+---
+title: "Tool System"
+description: "How tools work and how to create custom tools"
+---
+
+## Overview
+
+Tools are LLM-callable functions that extend the agent's capabilities. Pi includes built-in tools for file operations and command execution, and supports custom tools through the extension system.
+
+## Built-in Tools
+
+Pi provides six core tools for working with codebases:
+
+### read
+
+Read file contents with automatic truncation:
+
+```typescript
+{
+  name: "read",
+  description: "Read file contents. Truncates to 2000 lines by default.",
+  parameters: {
+    filePath: string,
+    offset?: number,  // Start line (0-based)
+    limit?: number,   // Number of lines to read
+  }
+}
+```
+
+**Features:**
+- Automatic truncation (2000 lines or 50KB)
+- Line-numbered output (`cat -n` format)
+- Binary file detection
+- Full output saved to temp file if truncated
+
+**Location:** `packages/coding-agent/src/core/tools/read.ts`
+
+### bash
+
+Execute shell commands:
+
+```typescript
+{
+  name: "bash",
+  description: "Execute a bash command in the working directory.",
+  parameters: {
+    command: string,
+    timeout?: number,  // Timeout in seconds
+  }
+}
+```
+
+**Features:**
+- Streams stdout/stderr combined
+- Automatic truncation (last 2000 lines or 50KB)
+- Full output saved to temp file if truncated
+- Process tree cleanup on abort
+- Custom shell configuration support
+
+**Location:** `packages/coding-agent/src/core/tools/bash.ts`
+
+### edit
+
+Edit files using exact string replacement:
+
+```typescript
+{
+  name: "edit",
+  description: "Edit a file by replacing exact strings.",
+  parameters: {
+    filePath: string,
+    oldString: string,
+    newString: string,
+    replaceAll?: boolean,  // Replace all occurrences
+  }
+}
+```
+
+**Features:**
+- Validates that `oldString` exists exactly once (unless `replaceAll`)
+- Preserves file encoding and line endings
+- Returns diff for verification
+- Fails fast if `oldString` not found or ambiguous
+
+**Location:** `packages/coding-agent/src/core/tools/edit.ts`
+
+### write
+
+Create or overwrite files:
+
+```typescript
+{
+  name: "write",
+  description: "Write content to a file (creates or overwrites).",
+  parameters: {
+    filePath: string,
+    content: string,
+  }
+}
+```
+
+**Features:**
+- Creates parent directories automatically
+- Overwrites existing files
+- Returns confirmation with file size
+
+**Location:** `packages/coding-agent/src/core/tools/write.ts`
+
+### grep
+
+Search file contents using regex:
+
+```typescript
+{
+  name: "grep",
+  description: "Search files for regex patterns.",
+  parameters: {
+    pattern: string,      // Regex pattern
+    include?: string,     // Glob pattern for files
+    path?: string,        // Directory to search
+  }
+}
+```
+
+**Features:**
+- Regex search across files
+- Glob pattern filtering
+- Sorted by modification time
+- Line number display
+
+**Location:** `packages/coding-agent/src/core/tools/grep.ts`
+
+### find
+
+Find files by name pattern:
+
+```typescript
+{
+  name: "find",
+  description: "Find files matching a glob pattern.",
+  parameters: {
+    pattern: string,    // Glob pattern (e.g., "**/*.ts")
+    path?: string,      // Directory to search
+  }
+}
+```
+
+**Features:**
+- Fast glob-based search
+- Sorted by modification time
+- Respects .gitignore by default
+
+**Location:** `packages/coding-agent/src/core/tools/find.ts`
+
+## Tool Interface
+
+All tools implement the `AgentTool` interface:
+
+```typescript
+import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { TSchema, Static } from "@sinclair/typebox";
+
+interface AgentTool<TParameters extends TSchema = TSchema, TDetails = any> {
+  // Tool identity
+  name: string;
+  label: string;  // Human-readable label for UI
+  description: string;  // Description for LLM
+  
+  // Parameter schema (TypeBox)
+  parameters: TParameters;
+  
+  // Execution function
+  execute(
+    toolCallId: string,
+    params: Static<TParameters>,
+    signal?: AbortSignal,
+    onUpdate?: (partialResult: AgentToolResult<TDetails>) => void,
+  ): Promise<AgentToolResult<TDetails>>;
+}
+
+interface AgentToolResult<T> {
+  // Content for LLM (text or images)
+  content: (TextContent | ImageContent)[];
+  
+  // Details for UI/logging (not sent to LLM)
+  details: T;
+}
+```
+
+**Location:** `packages/agent/src/types.ts:146`
+
+## Creating Custom Tools
+
+### Basic Example
+
+Create a simple tool using the extension API:
+
+```typescript
+import { Type } from "@sinclair/typebox";
+
+export default function (pi) {
+  pi.registerTool({
+    name: "get_time",
+    label: "get time",
+    description: "Get the current time in a specific timezone.",
+    parameters: Type.Object({
+      timezone: Type.String({
+        description: "Timezone (e.g., 'America/New_York')"
+      }),
+    }),
+    execute: async (toolCallId, params, signal, onUpdate) => {
+      const time = new Date().toLocaleString("en-US", {
+        timeZone: params.timezone,
+      });
+      
+      return {
+        content: [{ type: "text", text: `Current time: ${time}` }],
+        details: { timezone: params.timezone, time },
+      };
+    },
+  });
+}
+```
+
+### Streaming Updates
+
+Tools can stream partial results during execution:
+
+```typescript
+pi.registerTool({
+  name: "download_file",
+  label: "download file",
+  description: "Download a file with progress updates.",
+  parameters: Type.Object({
+    url: Type.String(),
+  }),
+  execute: async (toolCallId, params, signal, onUpdate) => {
+    let downloaded = 0;
+    const total = 1000000; // bytes
+    
+    const interval = setInterval(() => {
+      downloaded += 50000;
+      
+      // Stream progress to UI
+      onUpdate?.({
+        content: [{
+          type: "text",
+          text: `Downloaded ${downloaded}/${total} bytes`
+        }],
+        details: { progress: downloaded / total },
+      });
+      
+      if (downloaded >= total) {
+        clearInterval(interval);
+      }
+    }, 100);
+    
+    // Return final result
+    return {
+      content: [{ type: "text", text: "Download complete" }],
+      details: { size: total },
+    };
+  },
+});
+```
+
+### Abort Handling
+
+Respond to user interrupts using the abort signal:
+
+```typescript
+pi.registerTool({
+  name: "long_task",
+  label: "long task",
+  description: "Perform a long-running task.",
+  parameters: Type.Object({}),
+  execute: async (toolCallId, params, signal) => {
+    signal?.addEventListener("abort", () => {
+      console.log("Task aborted by user");
+      // Cleanup resources
+    });
+    
+    for (let i = 0; i < 100; i++) {
+      if (signal?.aborted) {
+        throw new Error("Task aborted");
+      }
+      
+      await sleep(100);
+    }
+    
+    return {
+      content: [{ type: "text", text: "Task complete" }],
+      details: {},
+    };
+  },
+});
+```
+
+## Custom Tool Rendering
+
+Tools can provide custom UI rendering for their calls and results:
+
+```typescript
+import { box, text } from "@mariozechner/pi-tui";
+
+pi.registerTool({
+  name: "api_call",
+  label: "API call",
+  description: "Make an API request.",
+  parameters: Type.Object({
+    endpoint: Type.String(),
+    method: Type.String(),
+  }),
+  
+  // Custom rendering for the tool call
+  renderCall: (args, theme) => {
+    return box(
+      { border: "single", borderColor: theme.colors.primary },
+      text(`${args.method} ${args.endpoint}`, { color: theme.colors.text })
+    );
+  },
+  
+  // Custom rendering for the result
+  renderResult: (result, options, theme) => {
+    const statusCode = result.details.statusCode;
+    const color = statusCode < 400 ? theme.colors.success : theme.colors.error;
+    
+    return box(
+      { border: "single", borderColor: color },
+      text(`Status: ${statusCode}`, { color })
+    );
+  },
+  
+  execute: async (toolCallId, params) => {
+    const response = await fetch(params.endpoint, {
+      method: params.method,
+    });
+    
+    const data = await response.text();
+    
+    return {
+      content: [{ type: "text", text: data }],
+      details: { statusCode: response.status },
+    };
+  },
+});
+```
+
+## Tool Operations
+
+Advanced tools can use custom operations for delegation:
+
+### Bash Operations
+
+Override how bash commands execute:
+
+```typescript
+import { createBashTool } from "@mariozechner/pi-coding-agent";
+import type { BashOperations } from "@mariozechner/pi-coding-agent";
+
+// Custom operations (e.g., execute over SSH)
+const sshOperations: BashOperations = {
+  exec: async (command, cwd, { onData, signal, timeout }) => {
+    // Execute command over SSH
+    const ssh = new SSHClient();
+    await ssh.connect({ host: "remote.example.com" });
+    
+    const stream = await ssh.exec(command, { cwd });
+    stream.on("data", onData);
+    
+    return new Promise((resolve) => {
+      stream.on("close", (code) => {
+        resolve({ exitCode: code });
+      });
+    });
+  },
+};
+
+const bashTool = createBashTool(process.cwd(), {
+  operations: sshOperations,
+});
+```
+
+**Location:** `packages/coding-agent/src/core/tools/bash.ts:33`
+
+## Tool Hooks
+
+Extensions can intercept and modify tool execution:
+
+### Block Tool Calls
+
+```typescript
+pi.on("tool_call", async (event, ctx) => {
+  if (event.toolName === "bash" && event.input.command.includes("sudo")) {
+    return {
+      block: true,
+      reason: "sudo commands not allowed",
+    };
+  }
+});
+```
+
+### Modify Tool Results
+
+```typescript
+pi.on("tool_result", async (event, ctx) => {
+  if (event.toolName === "read" && event.details?.filePath.endsWith(".env")) {
+    // Redact sensitive data
+    return {
+      content: [{ type: "text", text: "[REDACTED]" }],
+    };
+  }
+});
+```
+
+## Tool Selection
+
+Control which tools are active:
+
+```typescript
+// Get all available tools
+const allTools = pi.getAllTools();
+
+// Get currently active tools
+const activeTools = pi.getActiveTools();
+
+// Set active tools
+pi.setActiveTools(["read", "bash", "edit", "write"]);
+```
+
+Tools can also be selected via CLI:
+
+```bash
+pi --tools read,bash,grep,find  # Read-only mode
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use TypeBox for parameter validation">
+    TypeBox provides runtime validation and automatic type inference:
+    
+    ```typescript
+    import { Type } from "@sinclair/typebox";
+    
+    parameters: Type.Object({
+      path: Type.String({ minLength: 1 }),
+      recursive: Type.Boolean({ default: false }),
+      maxDepth: Type.Optional(Type.Number({ minimum: 1 })),
+    })
+    ```
+  </Accordion>
+  
+  <Accordion title="Stream progress for long operations">
+    Use `onUpdate` to provide feedback during execution:
+    
+    ```typescript
+    for (let i = 0; i < items.length; i++) {
+      // Process item
+      
+      onUpdate?.({
+        content: [{ type: "text", text: `Processing ${i+1}/${items.length}` }],
+        details: { progress: i / items.length },
+      });
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle abort signals">
+    Always check `signal.aborted` in loops and clean up resources:
+    
+    ```typescript
+    signal?.addEventListener("abort", () => {
+      // Cancel ongoing requests
+      controller.abort();
+      // Close files/connections
+      stream.close();
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Return structured details">
+    The `details` field is for UI/logging, not the LLM. Use it for rich information:
+    
+    ```typescript
+    return {
+      content: [{ type: "text", text: summary }],
+      details: {
+        files: changedFiles,
+        stats: { added: 10, removed: 5 },
+        duration: Date.now() - startTime,
+      },
+    };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Extensions" icon="puzzle-piece" href="/concepts/extensions">
+    Learn about the extension system
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Understand the system architecture
+  </Card>
+</CardGroup>

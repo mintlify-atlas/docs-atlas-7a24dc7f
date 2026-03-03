@@ -1,0 +1,644 @@
+---
+title: "Installation"
+description: "Detailed installation instructions for Pi across all platforms and providers"
+---
+
+## Requirements
+
+<CardGroup cols={2}>
+  <Card title="Node.js" icon="node-js">
+    Version 20.0.0 or later required
+    
+    Check version: `node --version`
+  </Card>
+  
+  <Card title="Bash Shell" icon="terminal">
+    Required for executing bash tool commands
+    
+    Built-in on macOS/Linux. Git Bash on Windows.
+  </Card>
+</CardGroup>
+
+## Install Pi
+
+<Tabs>
+  <Tab title="npm (Global)">
+    Install Pi globally to use the `pi` command anywhere:
+    
+    ```bash
+    npm install -g @mariozechner/pi-coding-agent
+    ```
+    
+    Verify installation:
+    ```bash
+    pi --version
+    ```
+  </Tab>
+  
+  <Tab title="npm (Local)">
+    Install Pi locally in a specific project:
+    
+    ```bash
+    npm install @mariozechner/pi-coding-agent
+    ```
+    
+    Run using npx:
+    ```bash
+    npx pi
+    ```
+  </Tab>
+  
+  <Tab title="From Source">
+    Clone the repository and build from source:
+    
+    ```bash
+    git clone https://github.com/badlogic/pi-mono.git
+    cd pi-mono
+    npm install
+    npm run build
+    ./pi-test.sh
+    ```
+    
+    This runs Pi from the built source instead of the globally installed version.
+  </Tab>
+</Tabs>
+
+## Platform-Specific Setup
+
+<AccordionGroup>
+  <Accordion title="macOS" icon="apple">
+    Pi works out of the box on macOS with Node.js 20+ installed.
+    
+    **Install Node.js:**
+    ```bash
+    # Using Homebrew
+    brew install node
+    
+    # Or download from nodejs.org
+    ```
+    
+    **Install Pi:**
+    ```bash
+    npm install -g @mariozechner/pi-coding-agent
+    pi
+    ```
+    
+    <Note>
+    For clipboard support with images, the `@mariozechner/clipboard` optional dependency is automatically installed.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Linux" icon="linux">
+    Pi requires Node.js 20+ and a bash shell (usually pre-installed).
+    
+    **Install Node.js:**
+    ```bash
+    # Using nvm (recommended)
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+    nvm install 20
+    nvm use 20
+    
+    # Or using package manager
+    # Ubuntu/Debian:
+    sudo apt update
+    sudo apt install nodejs npm
+    
+    # Fedora:
+    sudo dnf install nodejs npm
+    ```
+    
+    **Install Pi:**
+    ```bash
+    npm install -g @mariozechner/pi-coding-agent
+    pi
+    ```
+  </Accordion>
+
+  <Accordion title="Windows" icon="windows">
+    Pi requires a bash shell on Windows. The easiest option is Git Bash from Git for Windows.
+    
+    <Steps>
+      <Step title="Install Git for Windows">
+        Download and install from [git-scm.com](https://git-scm.com/download/win)
+        
+        This includes Git Bash at `C:\Program Files\Git\bin\bash.exe`
+      </Step>
+      
+      <Step title="Install Node.js">
+        Download and install from [nodejs.org](https://nodejs.org/)
+        
+        Verify installation in Git Bash:
+        ```bash
+        node --version
+        ```
+      </Step>
+      
+      <Step title="Install Pi">
+        In Git Bash or PowerShell:
+        ```bash
+        npm install -g @mariozechner/pi-coding-agent
+        pi
+        ```
+      </Step>
+    </Steps>
+    
+    **Custom Shell Path:**
+    
+    If you use Cygwin, MSYS2, or WSL, specify the bash path in `~/.pi/agent/settings.json`:
+    
+    ```json
+    {
+      "shellPath": "C:\\cygwin64\\bin\\bash.exe"
+    }
+    ```
+    
+    **Windows Terminal Note:**
+    
+    In Windows Terminal, use `Ctrl+Enter` for multi-line input instead of `Shift+Enter`.
+    
+    <Tip>
+    See the [Windows setup guide](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/windows.md) for more details.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Termux (Android)" icon="android">
+    Pi runs on Android through Termux, a Linux terminal emulator.
+    
+    <Steps>
+      <Step title="Install Termux">
+        Download from [GitHub](https://github.com/termux/termux-app#installation) or F-Droid (NOT Google Play)
+      </Step>
+      
+      <Step title="Install Termux:API">
+        Install [Termux:API](https://github.com/termux/termux-api#installation) for clipboard support
+      </Step>
+      
+      <Step title="Install dependencies">
+        ```bash
+        pkg update && pkg upgrade
+        pkg install nodejs termux-api git
+        ```
+      </Step>
+      
+      <Step title="Install Pi">
+        ```bash
+        npm install -g @mariozechner/pi-coding-agent
+        mkdir -p ~/.pi/agent
+        pi
+        ```
+      </Step>
+    </Steps>
+    
+    **Termux Limitations:**
+    - No image clipboard (text only)
+    - Some native dependencies unavailable on ARM64
+    - Storage access requires `termux-setup-storage`
+    
+    <Tip>
+    See the [Termux setup guide](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/termux.md) for a complete AGENTS.md example.
+    </Tip>
+  </Accordion>
+</AccordionGroup>
+
+## API Key Setup
+
+### API Key Providers
+
+Most providers use API keys set via environment variables:
+
+<CodeGroup>
+```bash Anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+pi
+```
+
+```bash OpenAI
+export OPENAI_API_KEY=sk-...
+pi
+```
+
+```bash Google Gemini
+export GEMINI_API_KEY=...
+pi
+```
+
+```bash Multiple Providers
+export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-...
+export GROQ_API_KEY=gsk_...
+pi
+
+# Switch models anytime with Ctrl+L or /model
+```
+</CodeGroup>
+
+**All Supported API Key Providers:**
+
+| Provider | Environment Variable |
+|----------|---------------------|
+| Anthropic | `ANTHROPIC_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Google Gemini | `GEMINI_API_KEY` |
+| Mistral | `MISTRAL_API_KEY` |
+| Groq | `GROQ_API_KEY` |
+| Cerebras | `CEREBRAS_API_KEY` |
+| xAI | `XAI_API_KEY` |
+| OpenRouter | `OPENROUTER_API_KEY` |
+| Vercel AI Gateway | `AI_GATEWAY_API_KEY` |
+| ZAI | `ZAI_API_KEY` |
+| OpenCode Zen | `OPENCODE_API_KEY` |
+| Hugging Face | `HF_TOKEN` |
+| Kimi For Coding | `KIMI_API_KEY` |
+| MiniMax | `MINIMAX_API_KEY` |
+| MiniMax China | `MINIMAX_CN_API_KEY` |
+
+### Making API Keys Permanent
+
+Add to your shell configuration file:
+
+<Tabs>
+  <Tab title="Bash">
+    Add to `~/.bashrc`:
+    ```bash
+    echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.bashrc
+    source ~/.bashrc
+    ```
+  </Tab>
+  
+  <Tab title="Zsh">
+    Add to `~/.zshrc`:
+    ```bash
+    echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.zshrc
+    source ~/.zshrc
+    ```
+  </Tab>
+  
+  <Tab title="Fish">
+    ```fish
+    set -Ux ANTHROPIC_API_KEY sk-ant-...
+    ```
+  </Tab>
+</Tabs>
+
+### Using Auth File
+
+Store credentials in `~/.pi/agent/auth.json` instead of environment variables:
+
+```json
+{
+  "anthropic": { "type": "api_key", "key": "sk-ant-..." },
+  "openai": { "type": "api_key", "key": "sk-..." },
+  "google": { "type": "api_key", "key": "..." }
+}
+```
+
+The auth file is created with `0600` permissions (user read/write only).
+
+**Advanced: Key Resolution**
+
+The `key` field supports three formats:
+
+<CodeGroup>
+```json Shell Command
+{
+  "anthropic": {
+    "type": "api_key",
+    "key": "!security find-generic-password -ws 'anthropic'"
+  }
+}
+```
+
+```json Environment Variable Reference
+{
+  "anthropic": {
+    "type": "api_key",
+    "key": "MY_ANTHROPIC_KEY"
+  }
+}
+```
+
+```json Literal Value
+{
+  "anthropic": {
+    "type": "api_key",
+    "key": "sk-ant-..."
+  }
+}
+```
+</CodeGroup>
+
+## Cloud Provider Setup
+
+<AccordionGroup>
+  <Accordion title="Azure OpenAI" icon="microsoft">
+    Azure OpenAI uses the Responses API. Set these environment variables:
+    
+    ```bash
+    export AZURE_OPENAI_API_KEY=...
+    export AZURE_OPENAI_BASE_URL=https://your-resource.openai.azure.com
+    # OR use resource name instead:
+    export AZURE_OPENAI_RESOURCE_NAME=your-resource
+    
+    # Optional:
+    export AZURE_OPENAI_API_VERSION=2024-02-01
+    export AZURE_OPENAI_DEPLOYMENT_NAME_MAP=gpt-4=my-gpt4,gpt-4o=my-gpt4o
+    ```
+    
+    Then run:
+    ```bash
+    pi --provider azure-openai-responses --model gpt-4o
+    ```
+  </Accordion>
+
+  <Accordion title="Amazon Bedrock" icon="aws">
+    Bedrock supports multiple authentication methods:
+    
+    **Option 1: AWS Profile**
+    ```bash
+    export AWS_PROFILE=your-profile
+    ```
+    
+    **Option 2: IAM Keys**
+    ```bash
+    export AWS_ACCESS_KEY_ID=AKIA...
+    export AWS_SECRET_ACCESS_KEY=...
+    ```
+    
+    **Option 3: Bearer Token**
+    ```bash
+    export AWS_BEARER_TOKEN_BEDROCK=...
+    ```
+    
+    **Optional region (defaults to us-east-1):**
+    ```bash
+    export AWS_REGION=us-west-2
+    ```
+    
+    **Using Bedrock:**
+    ```bash
+    pi --provider amazon-bedrock --model us.anthropic.claude-sonnet-4-20250514-v1:0
+    ```
+    
+    **Bedrock Proxy Configuration:**
+    
+    If connecting through a proxy:
+    ```bash
+    export AWS_ENDPOINT_URL_BEDROCK_RUNTIME=https://my.corp.proxy/bedrock
+    export AWS_BEDROCK_SKIP_AUTH=1  # If proxy doesn't require auth
+    export AWS_BEDROCK_FORCE_HTTP1=1  # If proxy only supports HTTP/1.1
+    ```
+  </Accordion>
+
+  <Accordion title="Google Vertex AI" icon="google">
+    Vertex AI uses Application Default Credentials (ADC):
+    
+    **Local Development:**
+    ```bash
+    gcloud auth application-default login
+    export GOOGLE_CLOUD_PROJECT=your-project
+    export GOOGLE_CLOUD_LOCATION=us-central1
+    ```
+    
+    **Production/CI:**
+    ```bash
+    export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+    export GOOGLE_CLOUD_PROJECT=your-project
+    export GOOGLE_CLOUD_LOCATION=us-central1
+    ```
+    
+    **Using Vertex:**
+    ```bash
+    pi --provider google-vertex --model gemini-2.5-flash
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## OAuth Provider Setup
+
+Several providers require OAuth authentication for subscription-based access:
+
+<Steps>
+  <Step title="Launch Pi">
+    ```bash
+    pi
+    ```
+  </Step>
+  
+  <Step title="Start login">
+    ```
+    /login
+    ```
+    
+    Select your provider:
+    - **Claude Pro/Max** - Anthropic subscription
+    - **ChatGPT Plus/Pro** - OpenAI Codex models
+    - **GitHub Copilot** - Copilot subscription
+    - **Google Gemini CLI** - Free or paid Cloud Code Assist
+    - **Google Antigravity** - Free Gemini 3, Claude, GPT-OSS
+  </Step>
+  
+  <Step title="Complete authentication">
+    Follow the browser prompts. Credentials save to `~/.pi/agent/auth.json` and auto-refresh.
+  </Step>
+</Steps>
+
+**Provider-Specific Notes:**
+
+<AccordionGroup>
+  <Accordion title="GitHub Copilot" icon="github">
+    - Press Enter for github.com, or enter your GitHub Enterprise Server domain
+    - If you get "model not supported", enable it in VS Code:
+      1. Open Copilot Chat
+      2. Click model selector
+      3. Select the model (warning icon)
+      4. Click "Enable"
+  </Accordion>
+  
+  <Accordion title="Google Providers" icon="google">
+    **Gemini CLI:**
+    - Standard Gemini models via Cloud Code Assist
+    - Free tier or paid subscription
+    - For paid: set `GOOGLE_CLOUD_PROJECT` env var
+    
+    **Antigravity:**
+    - Free sandbox with Gemini 3, Claude, GPT-OSS
+    - Any Google account, subject to rate limits
+  </Accordion>
+  
+  <Accordion title="OpenAI Codex" icon="openai">
+    - Requires ChatGPT Plus or Pro subscription
+    - Access to GPT-5.x Codex models with extended context
+    - Personal use only; for production, use OpenAI Platform API
+  </Accordion>
+</AccordionGroup>
+
+## Custom Providers
+
+<Tabs>
+  <Tab title="OpenAI-Compatible">
+    Use any OpenAI-compatible API (Ollama, vLLM, LM Studio) via `models.json`:
+    
+    Create `~/.pi/agent/models.json`:
+    ```json
+    {
+      "providers": {
+        "ollama": {
+          "name": "Ollama",
+          "api": "openai-completions",
+          "baseUrl": "http://localhost:11434/v1",
+          "models": [
+            {
+              "id": "llama-3.1-8b",
+              "name": "Llama 3.1 8B",
+              "contextWindow": 128000,
+              "maxTokens": 32000
+            }
+          ]
+        }
+      }
+    }
+    ```
+    
+    Use the model:
+    ```bash
+    pi --provider ollama --model llama-3.1-8b
+    ```
+  </Tab>
+  
+  <Tab title="Custom Extensions">
+    For providers with custom APIs or OAuth flows, create an extension.
+    
+    See:
+    - [Custom Provider Guide](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/custom-provider.md)
+    - [GitLab Duo Example](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent/examples/extensions/custom-provider-gitlab-duo)
+  </Tab>
+</Tabs>
+
+## Environment Variables
+
+Pi supports several environment variables for configuration:
+
+| Variable | Description |
+|----------|-------------|
+| `PI_CODING_AGENT_DIR` | Override config directory (default: `~/.pi/agent`) |
+| `PI_PACKAGE_DIR` | Override package directory (for Nix/Guix) |
+| `PI_SKIP_VERSION_CHECK` | Skip version check at startup |
+| `PI_CACHE_RETENTION` | Set to `long` for extended prompt cache (Anthropic: 1h, OpenAI: 24h) |
+| `VISUAL` or `EDITOR` | External editor for Ctrl+G |
+
+## Configuration Directories
+
+Pi uses these directories:
+
+```
+~/.pi/agent/
+├── auth.json              # OAuth tokens and API keys
+├── settings.json          # Global settings
+├── keybindings.json       # Custom keybindings
+├── models.json            # Custom provider models
+├── sessions/              # Session history (JSONL files)
+├── extensions/            # Global extensions
+├── skills/                # Global skills
+├── prompts/               # Global prompt templates
+├── themes/                # Global themes
+└── AGENTS.md              # Global agent instructions
+```
+
+Project-local configuration:
+
+```
+.pi/
+├── settings.json          # Project settings (override global)
+├── extensions/            # Project extensions
+├── skills/                # Project skills
+├── prompts/               # Project prompt templates
+├── themes/                # Project themes
+└── SYSTEM.md              # Custom system prompt
+```
+
+## Verify Installation
+
+Test your installation:
+
+```bash
+# Check version
+pi --version
+
+# List available models
+pi --list-models
+
+# Test with a simple prompt (non-interactive)
+pi -p "What is 2+2?"
+
+# Start interactive mode
+pi
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Interactive Mode" icon="terminal" href="/guides/interactive-mode">
+    Learn the terminal UI, commands, and keyboard shortcuts
+  </Card>
+  
+  <Card title="Providers & Models" icon="cloud" href="/guides/providers-and-models">
+    Detailed provider setup and model selection
+  </Card>
+  
+  <Card title="Settings" icon="gear" href="/concepts/settings">
+    Configure thinking levels, themes, and behavior
+  </Card>
+  
+  <Card title="Customization" icon="puzzle-piece" href="/guides/customization">
+    Extend Pi with skills, extensions, and packages
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Permission denied on npm install" icon="lock">
+    If you get permission errors during global install:
+    
+    **Option 1: Use nvm (recommended)**
+    ```bash
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+    nvm install 20
+    nvm use 20
+    npm install -g @mariozechner/pi-coding-agent
+    ```
+    
+    **Option 2: Change npm's default directory**
+    ```bash
+    mkdir ~/.npm-global
+    npm config set prefix '~/.npm-global'
+    echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+    source ~/.bashrc
+    npm install -g @mariozechner/pi-coding-agent
+    ```
+  </Accordion>
+  
+  <Accordion title="Cannot find module errors" icon="puzzle-piece">
+    If you see module errors after installation:
+    
+    ```bash
+    npm cache clean --force
+    npm install -g @mariozechner/pi-coding-agent
+    ```
+  </Accordion>
+  
+  <Accordion title="Bash not found (Windows)" icon="terminal">
+    Pi requires bash on Windows. Install Git for Windows:
+    
+    1. Download from [git-scm.com](https://git-scm.com/download/win)
+    2. Install with default options
+    3. Restart your terminal
+    4. Run `pi` again
+    
+    For other bash environments (Cygwin, MSYS2, WSL), set `shellPath` in `~/.pi/agent/settings.json`.
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+For more help, visit the [Discord community](https://discord.com/invite/3cU7Bz4UPx) or check [GitHub issues](https://github.com/badlogic/pi-mono/issues).
+</Tip>

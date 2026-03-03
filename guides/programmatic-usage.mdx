@@ -1,0 +1,615 @@
+---
+title: Programmatic Usage
+description: Using the Pi SDK in your own applications
+---
+
+# Programmatic Usage
+
+Pi can be embedded in your own applications using the SDK. This enables building custom workflows, IDE integrations, chatbots, and automated agents.
+
+## Installation
+
+```bash
+npm install @mariozechner/pi-coding-agent
+```
+
+The SDK includes all necessary dependencies for agent functionality.
+
+## Quick Start
+
+<CodeGroup>
+  ```typescript Basic Usage
+  import { createAgentSession } from '@mariozechner/pi-coding-agent';
+  
+  const { session } = await createAgentSession();
+  
+  // Send a prompt
+  await session.prompt('What files are in the current directory?');
+  
+  // The agent will use tools (read, bash, etc.) to fulfill the request
+  ```
+
+  ```typescript With Model Selection
+  import { createAgentSession } from '@mariozechner/pi-coding-agent';
+  import { getModel } from '@mariozechner/pi-ai';
+  
+  const { session } = await createAgentSession({
+    model: getModel('anthropic', 'claude-sonnet-4'),
+    thinkingLevel: 'high',
+  });
+  
+  await session.prompt('Analyze this codebase for security issues');
+  ```
+
+  ```typescript Event Handling
+  import { createAgentSession } from '@mariozechner/pi-coding-agent';
+  
+  const { session } = await createAgentSession();
+  
+  // Listen to agent events
+  session.on((event) => {
+    if (event.type === 'text_delta') {
+      process.stdout.write(event.delta);
+    } else if (event.type === 'tool_call_end') {
+      console.log(`Tool: ${event.toolName}`);
+    }
+  });
+  
+  await session.prompt('Create a new React component');
+  ```
+</CodeGroup>
+
+## Core API
+
+### createAgentSession
+
+Creates a new agent session with optional configuration.
+
+```typescript
+import {
+  createAgentSession,
+  SessionManager,
+  AuthStorage,
+  ModelRegistry,
+} from '@mariozechner/pi-coding-agent';
+
+const { session, extensionsResult, modelFallbackMessage } = await createAgentSession({
+  // Working directory for project-local discovery
+  cwd: process.cwd(),
+  
+  // Global config directory (default: ~/.pi/agent)
+  agentDir: '~/.pi/agent',
+  
+  // Model configuration
+  model: getModel('anthropic', 'claude-sonnet-4'),
+  thinkingLevel: 'medium',
+  
+  // Built-in tools (default: [read, bash, edit, write])
+  tools: [readTool, bashTool, editTool, writeTool],
+  
+  // Custom tools
+  customTools: [
+    {
+      name: 'deploy',
+      description: 'Deploy the application',
+      parameters: Type.Object({
+        environment: Type.String(),
+      }),
+      execute: async (args) => {
+        // Deploy logic
+        return { success: true };
+      },
+    },
+  ],
+  
+  // Session persistence
+  sessionManager: SessionManager.create(cwd),
+  // Or in-memory:
+  // sessionManager: SessionManager.inMemory(),
+  
+  // Authentication
+  authStorage: AuthStorage.create(),
+  modelRegistry: new ModelRegistry(authStorage),
+});
+```
+
+### AgentSession
+
+The main interface for interacting with the agent.
+
+<Tabs>
+  <Tab title="Methods">
+    ```typescript
+    // Send a prompt
+    await session.prompt('Refactor this function');
+    
+    // Send a message with file attachments
+    await session.sendMessage([
+      { type: 'text', text: 'Review this code' },
+      { type: 'image', data: imageBase64, mimeType: 'image/png' },
+    ]);
+    
+    // Execute bash command
+    const result = await session.executeBash('npm test');
+    console.log(result.output);
+    
+    // Change model
+    await session.changeModel(getModel('openai', 'gpt-4o'));
+    
+    // Change thinking level
+    await session.changeThinkingLevel('high');
+    
+    // Manual compaction
+    await session.compact({ customInstructions: 'Focus on recent code changes' });
+    
+    // Access state
+    const model = session.state.model;
+    const thinkingLevel = session.state.thinkingLevel;
+    const messages = session.state.messages;
+    ```
+  </Tab>
+
+  <Tab title="Events">
+    ```typescript
+    session.on((event) => {
+      switch (event.type) {
+        case 'turn_start':
+          console.log('Agent started working');
+          break;
+        
+        case 'text_delta':
+          // Stream text output
+          process.stdout.write(event.delta);
+          break;
+        
+        case 'thinking_delta':
+          // Stream thinking/reasoning
+          console.log('[thinking]', event.delta);
+          break;
+        
+        case 'tool_call_start':
+          console.log(`Tool: ${event.toolName}`);
+          break;
+        
+        case 'tool_call_end':
+          console.log(`Tool completed: ${event.toolName}`);
+          break;
+        
+        case 'turn_end':
+          console.log('Agent finished');
+          console.log('Stop reason:', event.stopReason);
+          break;
+        
+        case 'error':
+          console.error('Error:', event.error);
+          break;
+      }
+    });
+    ```
+  </Tab>
+
+  <Tab title="Properties">
+    ```typescript
+    // Agent state
+    const state = session.state;
+    console.log(state.model);          // Current model
+    console.log(state.thinkingLevel);  // Current thinking level
+    console.log(state.systemPrompt);   // System prompt
+    console.log(state.tools);          // Available tools
+    console.log(state.messages);       // Conversation history
+    
+    // Session metadata
+    const sessionId = session.sessionId;
+    const cwd = session.cwd;
+    
+    // Abort controller
+    session.abort();  // Cancel current operation
+    ```
+  </Tab>
+</Tabs>
+
+## Built-in Tools
+
+Pi provides pre-built tools for common operations.
+
+```typescript
+import {
+  // Individual tools
+  readTool,      // Read files
+  bashTool,      // Execute bash commands
+  editTool,      // Edit files with find/replace
+  writeTool,     // Write/create files
+  grepTool,      // Search file contents
+  findTool,      // Find files by glob
+  lsTool,        // List directory contents
+  
+  // Tool sets
+  codingTools,      // [read, bash, edit, write]
+  readOnlyTools,    // [read, grep, find, ls]
+  allBuiltInTools,  // All built-in tools
+  
+  // Tool factories (for custom working directory)
+  createReadTool,
+  createBashTool,
+  createEditTool,
+  createWriteTool,
+  createCodingTools,
+} from '@mariozechner/pi-coding-agent';
+
+// Use default tools (use process.cwd())
+const { session } = await createAgentSession({
+  tools: codingTools,
+});
+
+// Or create tools with custom cwd
+const customTools = createCodingTools('/path/to/project');
+const { session } = await createAgentSession({
+  cwd: '/path/to/project',
+  tools: customTools,
+});
+```
+
+## Custom Tools
+
+Define custom tools with TypeBox schemas for type safety.
+
+```typescript
+import { createAgentSession } from '@mariozechner/pi-coding-agent';
+import { Type } from '@mariozechner/pi-ai';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
+
+const deployTool = {
+  name: 'deploy',
+  description: 'Deploy application to specified environment',
+  parameters: Type.Object({
+    environment: Type.Union([
+      Type.Literal('staging'),
+      Type.Literal('production'),
+    ], { description: 'Target environment' }),
+    branch: Type.Optional(Type.String({ description: 'Git branch to deploy' })),
+    skipTests: Type.Optional(Type.Boolean({ default: false })),
+  }),
+  execute: async (args, update) => {
+    // Update callback for progress
+    update({ status: 'Running tests...' });
+    
+    if (!args.skipTests) {
+      const { stdout } = await execAsync('npm test');
+      if (stdout.includes('FAIL')) {
+        return { success: false, error: 'Tests failed' };
+      }
+    }
+    
+    update({ status: 'Building...' });
+    await execAsync('npm run build');
+    
+    update({ status: `Deploying to ${args.environment}...` });
+    const { stdout } = await execAsync(
+      `./scripts/deploy.sh ${args.environment} ${args.branch || 'main'}`
+    );
+    
+    return {
+      success: true,
+      url: `https://${args.environment}.example.com`,
+      logs: stdout,
+    };
+  },
+};
+
+const { session } = await createAgentSession({
+  customTools: [deployTool],
+});
+
+await session.prompt('Deploy the latest changes to staging');
+```
+
+## Session Management
+
+<Tabs>
+  <Tab title="Persistent Sessions">
+    ```typescript
+    import { createAgentSession, SessionManager } from '@mariozechner/pi-coding-agent';
+    
+    // Create with default session manager (saves to ~/.pi/agent/sessions/)
+    const { session } = await createAgentSession({
+      cwd: process.cwd(),
+    });
+    
+    // Session is automatically saved
+    await session.prompt('What is 2 + 2?');
+    
+    // Continue later
+    const { session: resumedSession } = await createAgentSession({
+      cwd: process.cwd(),
+      sessionManager: SessionManager.create(process.cwd()),
+    });
+    
+    // Conversation history is restored
+    await resumedSession.prompt('What was my last question?');
+    // Agent: "Your last question was 'What is 2 + 2?'"
+    ```
+  </Tab>
+
+  <Tab title="In-Memory Sessions">
+    ```typescript
+    import { createAgentSession, SessionManager } from '@mariozechner/pi-coding-agent';
+    
+    // Ephemeral session (not saved)
+    const { session } = await createAgentSession({
+      sessionManager: SessionManager.inMemory(),
+    });
+    
+    await session.prompt('Analyze this file');
+    // Session is lost when process exits
+    ```
+  </Tab>
+
+  <Tab title="Custom Session Storage">
+    ```typescript
+    import { createAgentSession, SessionManager } from '@mariozechner/pi-coding-agent';
+    
+    // Custom session directory
+    const { session } = await createAgentSession({
+      sessionManager: SessionManager.create(process.cwd(), {
+        sessionDir: '/custom/path/sessions',
+      }),
+    });
+    
+    // Access session metadata
+    const sessionId = session.sessionId;
+    const sessionPath = session.sessionManager.getSessionPath();
+    console.log(`Session saved to: ${sessionPath}`);
+    ```
+  </Tab>
+</Tabs>
+
+## Resource Loading
+
+Load skills, prompt templates, and other resources.
+
+```typescript
+import {
+  createAgentSession,
+  DefaultResourceLoader,
+  SettingsManager,
+} from '@mariozechner/pi-coding-agent';
+
+// Create resource loader
+const loader = new DefaultResourceLoader({
+  cwd: process.cwd(),
+  agentDir: '~/.pi/agent',
+  settingsManager: SettingsManager.create(),
+});
+
+// Load resources
+await loader.reload();
+
+// Create session with loaded resources
+const { session } = await createAgentSession({
+  resourceLoader: loader,
+});
+
+// Access loaded resources
+const skills = loader.getSkills();
+const prompts = loader.getPromptTemplates();
+const themes = loader.getThemes();
+
+console.log(`Loaded ${skills.length} skills`);
+console.log(`Loaded ${prompts.length} prompt templates`);
+```
+
+## Real-World Examples
+
+<AccordionGroup>
+  <Accordion title="Automated Code Review Bot">
+    ```typescript
+    import { createAgentSession, readTool, bashTool } from '@mariozechner/pi-coding-agent';
+    import { getModel } from '@mariozechner/pi-ai';
+    import { Octokit } from '@octokit/rest';
+    
+    const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+    
+    async function reviewPullRequest(owner: string, repo: string, prNumber: number) {
+      // Create agent session
+      const { session } = await createAgentSession({
+        model: getModel('anthropic', 'claude-sonnet-4'),
+        thinkingLevel: 'high',
+        tools: [readTool, bashTool],
+      });
+      
+      // Get PR files
+      const { data: files } = await octokit.pulls.listFiles({
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+      
+      // Build file list
+      const fileList = files.map(f => f.filename).join('\n');
+      
+      // Run code review
+      const reviewComments: string[] = [];
+      
+      session.on((event) => {
+        if (event.type === 'text_delta') {
+          reviewComments.push(event.delta);
+        }
+      });
+      
+      await session.prompt(`
+        Review this pull request:
+        
+        Changed files:
+        ${fileList}
+        
+        Please:
+        1. Read each changed file
+        2. Check for:
+           - Security vulnerabilities
+           - Performance issues
+           - Code style violations
+           - Missing tests
+        3. Provide specific feedback with file:line references
+      `);
+      
+      // Post review comment
+      const reviewBody = reviewComments.join('');
+      
+      await octokit.pulls.createReview({
+        owner,
+        repo,
+        pull_number: prNumber,
+        body: reviewBody,
+        event: 'COMMENT',
+      });
+      
+      console.log('Review posted!');
+    }
+    
+    // Usage
+    await reviewPullRequest('owner', 'repo', 123);
+    ```
+  </Accordion>
+
+  <Accordion title="CLI Tool Builder">
+    ```typescript
+    #!/usr/bin/env node
+    import { createAgentSession } from '@mariozechner/pi-coding-agent';
+    import { getModel } from '@mariozechner/pi-ai';
+    import { Command } from 'commander';
+    
+    const program = new Command();
+    
+    program
+      .name('ai-helper')
+      .description('AI-powered development helper')
+      .version('1.0.0');
+    
+    program
+      .command('refactor <file>')
+      .description('Refactor a file')
+      .option('-s, --style <style>', 'Code style', 'functional')
+      .action(async (file, options) => {
+        const { session } = await createAgentSession({
+          model: getModel('anthropic', 'claude-sonnet-4'),
+        });
+        
+        session.on((event) => {
+          if (event.type === 'text_delta') {
+            process.stdout.write(event.delta);
+          }
+        });
+        
+        await session.prompt(`
+          Refactor ${file} to use ${options.style} style.
+          Preserve all functionality and add tests.
+        `);
+      });
+    
+    program
+      .command('test <file>')
+      .description('Generate tests for a file')
+      .action(async (file) => {
+        const { session } = await createAgentSession();
+        
+        await session.prompt(`
+          Read ${file} and generate comprehensive unit tests.
+          Cover edge cases and error handling.
+        `);
+      });
+    
+    program.parse();
+    ```
+  </Accordion>
+
+  <Accordion title="VS Code Extension">
+    ```typescript
+    import * as vscode from 'vscode';
+    import { createAgentSession, SessionManager } from '@mariozechner/pi-coding-agent';
+    import { getModel } from '@mariozechner/pi-ai';
+    
+    let session: Awaited<ReturnType<typeof createAgentSession>>['session'];
+    
+    export async function activate(context: vscode.ExtensionContext) {
+      // Create persistent session
+      const { session: agentSession } = await createAgentSession({
+        cwd: vscode.workspace.workspaceFolders?.[0].uri.fsPath,
+        sessionManager: SessionManager.create(
+          vscode.workspace.workspaceFolders?.[0].uri.fsPath || process.cwd()
+        ),
+      });
+      
+      session = agentSession;
+      
+      // Register command
+      const disposable = vscode.commands.registerCommand(
+        'extension.aiRefactor',
+        async () => {
+          const editor = vscode.window.activeTextEditor;
+          if (!editor) return;
+          
+          const selection = editor.selection;
+          const text = editor.document.getText(selection);
+          
+          const outputChannel = vscode.window.createOutputChannel('AI Helper');
+          outputChannel.show();
+          
+          session.on((event) => {
+            if (event.type === 'text_delta') {
+              outputChannel.append(event.delta);
+            } else if (event.type === 'tool_call_end' && event.toolName === 'edit') {
+              // Refresh editor when file is edited
+              vscode.commands.executeCommand('workbench.action.files.revert');
+            }
+          });
+          
+          await session.prompt(`
+            Refactor this code to improve readability:
+            
+            ${text}
+          `);
+        }
+      );
+      
+      context.subscriptions.push(disposable);
+    }
+    
+    export function deactivate() {
+      session?.abort();
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## API Reference
+
+For complete API documentation, see:
+
+- [Agent Core API](https://github.com/badlogic/pi-mono/blob/main/packages/agent/README.md)
+- [AI API](https://github.com/badlogic/pi-mono/blob/main/packages/ai/README.md)
+- [SDK Examples](https://github.com/badlogic/pi-mono/tree/main/examples/sdk)
+
+## TypeScript Types
+
+All APIs are fully typed. Import types from the SDK:
+
+```typescript
+import type {
+  AgentSession,
+  Tool,
+  ToolDefinition,
+  ExtensionAPI,
+  Skill,
+  PromptTemplate,
+} from '@mariozechner/pi-coding-agent';
+
+import type {
+  Model,
+  Message,
+  AssistantMessage,
+  Context,
+} from '@mariozechner/pi-ai';
+```

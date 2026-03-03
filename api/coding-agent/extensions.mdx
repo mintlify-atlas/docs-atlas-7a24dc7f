@@ -1,0 +1,570 @@
+---
+title: Extension System
+description: Extension API for lifecycle events, custom tools, and UI customization
+---
+
+## Extension Interface
+
+Extensions are TypeScript modules that export a default function receiving the `ExtensionAPI`:
+
+```typescript
+import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
+
+export default function (pi: ExtensionAPI) {
+  // Register event handlers, tools, commands
+}
+```
+
+Extensions are automatically discovered from:
+- `~/.pi/agent/extensions/`
+- `<cwd>/.pi/extensions/`
+- Paths in `settings.json` "extensions" array
+
+## ExtensionAPI
+
+The `pi` object passed to extensions provides methods for registration and interaction.
+
+### Event Subscription
+
+Subscribe to lifecycle events using `pi.on()`:
+
+```typescript
+pi.on(event: string, handler: ExtensionHandler): void
+```
+
+#### Available Events
+
+<ParamField path="resources_discover" type="ResourcesDiscoverEvent">
+  Fired after session_start to provide additional resource paths
+  
+  **Returns:** `ResourcesDiscoverResult` with `skillPaths`, `promptPaths`, `themePaths`
+</ParamField>
+
+<ParamField path="session_start" type="SessionStartEvent">
+  Fired on initial session load
+</ParamField>
+
+<ParamField path="session_before_switch" type="SessionBeforeSwitchEvent">
+  Fired before switching sessions (can be cancelled)
+  
+  **Returns:** `{ cancel?: boolean }`
+</ParamField>
+
+<ParamField path="session_switch" type="SessionSwitchEvent">
+  Fired after switching to another session
+</ParamField>
+
+<ParamField path="session_before_fork" type="SessionBeforeForkEvent">
+  Fired before forking a session (can be cancelled)
+  
+  **Returns:** `{ cancel?: boolean }`
+</ParamField>
+
+<ParamField path="session_fork" type="SessionForkEvent">
+  Fired after forking a session
+</ParamField>
+
+<ParamField path="session_before_compact" type="SessionBeforeCompactEvent">
+  Fired before context compaction (can be cancelled or customized)
+  
+  **Returns:** `{ cancel?: boolean; compaction?: CompactionResult }`
+</ParamField>
+
+<ParamField path="session_compact" type="SessionCompactEvent">
+  Fired after context compaction completes
+</ParamField>
+
+<ParamField path="session_shutdown" type="SessionShutdownEvent">
+  Fired on process exit
+</ParamField>
+
+<ParamField path="session_before_tree" type="SessionBeforeTreeEvent">
+  Fired before navigating in session tree (can be cancelled)
+  
+  **Returns:** `{ cancel?: boolean; summary?: { summary: string; details?: unknown } }`
+</ParamField>
+
+<ParamField path="session_tree" type="SessionTreeEvent">
+  Fired after navigating in the session tree
+</ParamField>
+
+<ParamField path="context" type="ContextEvent">
+  Fired before each LLM call. Can modify messages
+  
+  **Returns:** `{ messages?: AgentMessage[] }`
+</ParamField>
+
+<ParamField path="before_agent_start" type="BeforeAgentStartEvent">
+  Fired after user submits prompt but before agent loop
+  
+  **Returns:** `{ message?: CustomMessage; systemPrompt?: string }`
+</ParamField>
+
+<ParamField path="agent_start" type="AgentStartEvent">
+  Fired when an agent loop starts
+</ParamField>
+
+<ParamField path="agent_end" type="AgentEndEvent">
+  Fired when an agent loop ends
+</ParamField>
+
+<ParamField path="turn_start" type="TurnStartEvent">
+  Fired at the start of each turn
+</ParamField>
+
+<ParamField path="turn_end" type="TurnEndEvent">
+  Fired at the end of each turn
+</ParamField>
+
+<ParamField path="message_start" type="MessageStartEvent">
+  Fired when a message starts (user, assistant, or toolResult)
+</ParamField>
+
+<ParamField path="message_update" type="MessageUpdateEvent">
+  Fired during assistant message streaming with token-by-token updates
+</ParamField>
+
+<ParamField path="message_end" type="MessageEndEvent">
+  Fired when a message ends
+</ParamField>
+
+<ParamField path="tool_execution_start" type="ToolExecutionStartEvent">
+  Fired when a tool starts executing
+</ParamField>
+
+<ParamField path="tool_execution_update" type="ToolExecutionUpdateEvent">
+  Fired during tool execution with partial/streaming output
+</ParamField>
+
+<ParamField path="tool_execution_end" type="ToolExecutionEndEvent">
+  Fired when a tool finishes executing
+</ParamField>
+
+<ParamField path="model_select" type="ModelSelectEvent">
+  Fired when a new model is selected
+</ParamField>
+
+<ParamField path="tool_call" type="ToolCallEvent">
+  Fired before a tool executes. Can block execution
+  
+  **Returns:** `{ block?: boolean; reason?: string }`
+</ParamField>
+
+<ParamField path="tool_result" type="ToolResultEvent">
+  Fired after a tool executes. Can modify result
+  
+  **Returns:** `{ content?: Content[]; details?: unknown; isError?: boolean }`
+</ParamField>
+
+<ParamField path="user_bash" type="UserBashEvent">
+  Fired when user executes bash via `!` or `!!` prefix
+  
+  **Returns:** `{ operations?: BashOperations; result?: BashResult }`
+</ParamField>
+
+<ParamField path="input" type="InputEvent">
+  Fired when user input is received, before agent processing
+  
+  **Returns:** `{ action: 'continue' | 'transform' | 'handled'; text?: string; images?: ImageContent[] }`
+</ParamField>
+
+### Tool Registration
+
+Register LLM-callable tools:
+
+```typescript
+pi.registerTool<TParams, TDetails>(tool: ToolDefinition<TParams, TDetails>): void
+```
+
+#### ToolDefinition
+
+<ParamField path="name" type="string" required>
+  Tool name (used in LLM tool calls)
+</ParamField>
+
+<ParamField path="label" type="string" required>
+  Human-readable label for UI
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  Description for LLM
+</ParamField>
+
+<ParamField path="parameters" type="TSchema" required>
+  Parameter schema (TypeBox)
+</ParamField>
+
+<ParamField path="execute" type="function" required>
+  Execute the tool
+  
+  ```typescript
+  async execute(
+    toolCallId: string,
+    params: Static<TParams>,
+    signal: AbortSignal | undefined,
+    onUpdate: AgentToolUpdateCallback<TDetails> | undefined,
+    ctx: ExtensionContext,
+  ): Promise<AgentToolResult<TDetails>>
+  ```
+</ParamField>
+
+<ParamField path="renderCall" type="function">
+  Custom rendering for tool call display
+  
+  ```typescript
+  renderCall?: (args: Static<TParams>, theme: Theme) => Component
+  ```
+</ParamField>
+
+<ParamField path="renderResult" type="function">
+  Custom rendering for tool result display
+  
+  ```typescript
+  renderResult?: (
+    result: AgentToolResult<TDetails>,
+    options: ToolRenderResultOptions,
+    theme: Theme
+  ) => Component
+  ```
+</ParamField>
+
+#### Example
+
+```typescript
+import { Type } from '@mariozechner/pi-ai';
+import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
+
+export default function (pi: ExtensionAPI) {
+  pi.registerTool({
+    name: 'hello',
+    label: 'Hello',
+    description: 'A simple greeting tool',
+    parameters: Type.Object({
+      name: Type.String({ description: 'Name to greet' }),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const { name } = params;
+      return {
+        content: [{ type: 'text', text: `Hello, ${name}!` }],
+        details: { greeted: name },
+      };
+    },
+  });
+}
+```
+
+### Command Registration
+
+Register custom slash commands:
+
+```typescript
+pi.registerCommand(name: string, options: {
+  description?: string;
+  getArgumentCompletions?: (prefix: string) => AutocompleteItem[] | null;
+  handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+}): void
+```
+
+#### Example
+
+```typescript
+pi.registerCommand('greet', {
+  description: 'Greet the user',
+  handler: async (args, ctx) => {
+    const name = args || 'stranger';
+    ctx.ui.notify(`Hello, ${name}!`);
+  },
+});
+```
+
+### Shortcut Registration
+
+Register keyboard shortcuts:
+
+```typescript
+pi.registerShortcut(shortcut: KeyId, options: {
+  description?: string;
+  handler: (ctx: ExtensionContext) => Promise<void> | void;
+}): void
+```
+
+#### Example
+
+```typescript
+pi.registerShortcut('ctrl+shift+g', {
+  description: 'Quick greeting',
+  handler: async (ctx) => {
+    ctx.ui.notify('Hello from shortcut!');
+  },
+});
+```
+
+### Flag Registration
+
+Register CLI flags:
+
+```typescript
+pi.registerFlag(name: string, options: {
+  description?: string;
+  type: 'boolean' | 'string';
+  default?: boolean | string;
+}): void
+
+pi.getFlag(name: string): boolean | string | undefined
+```
+
+#### Example
+
+```typescript
+pi.registerFlag('verbose', {
+  description: 'Enable verbose logging',
+  type: 'boolean',
+  default: false,
+});
+
+pi.on('agent_start', () => {
+  if (pi.getFlag('verbose')) {
+    console.log('Agent starting in verbose mode');
+  }
+});
+```
+
+### Message Actions
+
+Send messages to the session:
+
+```typescript
+// Send custom message
+pi.sendMessage<T>(
+  message: Pick<CustomMessage<T>, 'customType' | 'content' | 'display' | 'details'>,
+  options?: { triggerTurn?: boolean; deliverAs?: 'steer' | 'followUp' | 'nextTurn' }
+): void
+
+// Send user message (always triggers a turn)
+pi.sendUserMessage(
+  content: string | (TextContent | ImageContent)[],
+  options?: { deliverAs?: 'steer' | 'followUp' }
+): void
+
+// Append custom entry for state persistence (not sent to LLM)
+pi.appendEntry<T>(customType: string, data?: T): void
+```
+
+### Session Metadata
+
+```typescript
+pi.setSessionName(name: string): void
+pi.getSessionName(): string | undefined
+pi.setLabel(entryId: string, label: string | undefined): void
+```
+
+### Tool Management
+
+```typescript
+pi.getActiveTools(): string[]
+pi.getAllTools(): ToolInfo[]
+pi.setActiveTools(toolNames: string[]): void
+```
+
+### Model Management
+
+```typescript
+pi.setModel(model: Model<any>): Promise<boolean>
+pi.getThinkingLevel(): ThinkingLevel
+pi.setThinkingLevel(level: ThinkingLevel): void
+```
+
+### Provider Registration
+
+Register or override model providers:
+
+```typescript
+pi.registerProvider(name: string, config: ProviderConfig): void
+```
+
+#### Example
+
+```typescript
+pi.registerProvider('my-proxy', {
+  baseUrl: 'https://proxy.example.com',
+  apiKey: 'PROXY_API_KEY',
+  api: 'anthropic-messages',
+  models: [
+    {
+      id: 'claude-sonnet-4-20250514',
+      name: 'Claude 4 Sonnet (proxy)',
+      reasoning: false,
+      input: ['text', 'image'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200000,
+      maxTokens: 16384,
+    },
+  ],
+});
+```
+
+### Message Rendering
+
+Register custom renderers for `CustomMessageEntry`:
+
+```typescript
+pi.registerMessageRenderer<T>(
+  customType: string,
+  renderer: MessageRenderer<T>
+): void
+```
+
+### Utility
+
+```typescript
+pi.exec(command: string, args: string[], options?: ExecOptions): Promise<ExecResult>
+pi.getCommands(): SlashCommandInfo[]
+pi.events: EventBus  // Shared event bus for extension communication
+```
+
+## ExtensionContext
+
+Context passed to event handlers and tool execution:
+
+<ParamField path="ui" type="ExtensionUIContext">
+  UI methods for user interaction (see [UI Context](#ui-context))
+</ParamField>
+
+<ParamField path="hasUI" type="boolean">
+  Whether UI is available (false in print/RPC mode)
+</ParamField>
+
+<ParamField path="cwd" type="string">
+  Current working directory
+</ParamField>
+
+<ParamField path="sessionManager" type="ReadonlySessionManager">
+  Session manager (read-only)
+</ParamField>
+
+<ParamField path="modelRegistry" type="ModelRegistry">
+  Model registry for API key resolution
+</ParamField>
+
+<ParamField path="model" type="Model<any> | undefined">
+  Current model (may be undefined)
+</ParamField>
+
+<ParamField path="isIdle" type="() => boolean">
+  Whether the agent is idle (not streaming)
+</ParamField>
+
+<ParamField path="abort" type="() => void">
+  Abort the current agent operation
+</ParamField>
+
+<ParamField path="hasPendingMessages" type="() => boolean">
+  Whether there are queued messages waiting
+</ParamField>
+
+<ParamField path="shutdown" type="() => void">
+  Gracefully shutdown pi and exit
+</ParamField>
+
+<ParamField path="getContextUsage" type="() => ContextUsage | undefined">
+  Get current context usage for the active model
+</ParamField>
+
+<ParamField path="compact" type="(options?: CompactOptions) => void">
+  Trigger compaction without awaiting completion
+</ParamField>
+
+<ParamField path="getSystemPrompt" type="() => string">
+  Get the current effective system prompt
+</ParamField>
+
+## ExtensionCommandContext
+
+Extended context for command handlers with session control:
+
+<ParamField path="waitForIdle" type="() => Promise<void>">
+  Wait for the agent to finish streaming
+</ParamField>
+
+<ParamField path="newSession" type="function">
+  Start a new session, optionally with initialization
+  
+  ```typescript
+  async newSession(options?: {
+    parentSession?: string;
+    setup?: (sessionManager: SessionManager) => Promise<void>;
+  }): Promise<{ cancelled: boolean }>
+  ```
+</ParamField>
+
+<ParamField path="fork" type="(entryId: string) => Promise<{ cancelled: boolean }>">
+  Fork from a specific entry, creating a new session file
+</ParamField>
+
+<ParamField path="navigateTree" type="function">
+  Navigate to a different point in the session tree
+  
+  ```typescript
+  async navigateTree(
+    targetId: string,
+    options?: {
+      summarize?: boolean;
+      customInstructions?: string;
+      replaceInstructions?: boolean;
+      label?: string;
+    }
+  ): Promise<{ cancelled: boolean }>
+  ```
+</ParamField>
+
+<ParamField path="switchSession" type="(sessionPath: string) => Promise<{ cancelled: boolean }>">
+  Switch to a different session file
+</ParamField>
+
+<ParamField path="reload" type="() => Promise<void>">
+  Reload extensions, skills, prompts, and themes
+</ParamField>
+
+## UI Context
+
+UI methods available via `ctx.ui` for interactive user interaction:
+
+```typescript
+// Dialogs
+await ctx.ui.select(title, options, opts?)
+await ctx.ui.confirm(title, message, opts?)
+await ctx.ui.input(title, placeholder?, opts?)
+await ctx.ui.editor(title, prefill?)
+
+// Notifications
+ctx.ui.notify(message, type?)
+ctx.ui.setStatus(key, text)
+ctx.ui.setWorkingMessage(message?)
+
+// Widgets
+ctx.ui.setWidget(key, content, options?)
+ctx.ui.setFooter(factory)
+ctx.ui.setHeader(factory)
+
+// Editor
+ctx.ui.pasteToEditor(text)
+ctx.ui.setEditorText(text)
+ctx.ui.getEditorText()
+ctx.ui.setEditorComponent(factory)
+
+// Theme
+ctx.ui.theme
+ctx.ui.getAllThemes()
+ctx.ui.getTheme(name)
+ctx.ui.setTheme(theme)
+
+// Terminal
+ctx.ui.setTitle(title)
+ctx.ui.onTerminalInput(handler)
+
+// Custom components
+await ctx.ui.custom(factory, options?)
+```
+
+See the full API documentation for detailed signatures and examples.

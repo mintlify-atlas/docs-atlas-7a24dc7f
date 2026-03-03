@@ -1,0 +1,491 @@
+---
+title: 'Core Types'
+description: 'Type definitions for agent state, messages, events, and configuration'
+---
+
+## Overview
+
+The `@mariozechner/pi-agent-core` package provides type-safe interfaces for building AI agents. This page documents the core types used throughout the package.
+
+## State Types
+
+### AgentState
+
+```typescript
+interface AgentState {
+  systemPrompt: string;
+  model: Model<any>;
+  thinkingLevel: ThinkingLevel;
+  tools: AgentTool<any>[];
+  messages: AgentMessage[];
+  isStreaming: boolean;
+  streamMessage: AgentMessage | null;
+  pendingToolCalls: Set<string>;
+  error?: string;
+}
+```
+
+Complete agent state containing configuration and conversation data.
+
+<ResponseField name="systemPrompt" type="string">
+  System prompt sent to the LLM at the start of each request.
+</ResponseField>
+
+<ResponseField name="model" type="Model<any>">
+  LLM model from `@mariozechner/pi-ai` (e.g., `getModel('openai', 'gpt-4o')`).
+</ResponseField>
+
+<ResponseField name="thinkingLevel" type="ThinkingLevel">
+  Reasoning level for models that support it: `'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'`.
+  
+  Note: `'xhigh'` is only supported by OpenAI gpt-5.1-codex-max, gpt-5.2, gpt-5.2-codex, gpt-5.3, and gpt-5.3-codex models.
+</ResponseField>
+
+<ResponseField name="tools" type="AgentTool<any>[]">
+  Tools available for the agent to execute.
+</ResponseField>
+
+<ResponseField name="messages" type="AgentMessage[]">
+  Full conversation history including user, assistant, toolResult, and custom message types.
+</ResponseField>
+
+<ResponseField name="isStreaming" type="boolean">
+  True when the agent is actively streaming a response.
+</ResponseField>
+
+<ResponseField name="streamMessage" type="AgentMessage | null">
+  Partial message being streamed (null when not streaming).
+</ResponseField>
+
+<ResponseField name="pendingToolCalls" type="Set<string>">
+  Set of tool call IDs currently being executed.
+</ResponseField>
+
+<ResponseField name="error" type="string | undefined">
+  Error message from the last failed operation.
+</ResponseField>
+
+### ThinkingLevel
+
+```typescript
+type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+```
+
+Controls how much reasoning the model does before responding. Higher levels use more tokens but may produce better results for complex tasks.
+
+- `'off'`: No explicit reasoning (fastest)
+- `'minimal'`: Very brief reasoning
+- `'low'`: Light reasoning for simple tasks
+- `'medium'`: Balanced reasoning (recommended default)
+- `'high'`: Deep reasoning for complex tasks
+- `'xhigh'`: Maximum reasoning (OpenAI gpt-5.x models only)
+
+## Message Types
+
+### AgentMessage
+
+```typescript
+type AgentMessage = Message | CustomAgentMessages[keyof CustomAgentMessages];
+```
+
+Union of standard LLM messages (from `@mariozechner/pi-ai`) and custom application messages. Applications can extend this via declaration merging:
+
+```typescript
+declare module '@mariozechner/pi-agent-core' {
+  interface CustomAgentMessages {
+    artifact: ArtifactMessage;
+    notification: NotificationMessage;
+  }
+}
+```
+
+### CustomAgentMessages
+
+```typescript
+interface CustomAgentMessages {
+  // Empty by default - extend via declaration merging
+}
+```
+
+Extensible interface for custom message types. Use declaration merging to add app-specific messages:
+
+```typescript
+// your-types.ts
+import '@mariozechner/pi-agent-core';
+
+interface ArtifactMessage {
+  role: 'artifact';
+  content: string;
+  artifactType: 'code' | 'diagram' | 'document';
+  timestamp: number;
+}
+
+declare module '@mariozechner/pi-agent-core' {
+  interface CustomAgentMessages {
+    artifact: ArtifactMessage;
+  }
+}
+```
+
+## Event Types
+
+### AgentEvent
+
+```typescript
+type AgentEvent =
+  | { type: 'agent_start' }
+  | { type: 'agent_end'; messages: AgentMessage[] }
+  | { type: 'turn_start' }
+  | { type: 'turn_end'; message: AgentMessage; toolResults: ToolResultMessage[] }
+  | { type: 'message_start'; message: AgentMessage }
+  | { type: 'message_update'; message: AgentMessage; assistantMessageEvent: AssistantMessageEvent }
+  | { type: 'message_end'; message: AgentMessage }
+  | { type: 'tool_execution_start'; toolCallId: string; toolName: string; args: any }
+  | { type: 'tool_execution_update'; toolCallId: string; toolName: string; args: any; partialResult: any }
+  | { type: 'tool_execution_end'; toolCallId: string; toolName: string; result: any; isError: boolean };
+```
+
+Events emitted by the agent during execution. Subscribe via `agent.subscribe()`.
+
+#### Agent Lifecycle
+
+<ResponseField name="agent_start" type="{ type: 'agent_start' }">
+  Emitted when the agent starts processing.
+</ResponseField>
+
+<ResponseField name="agent_end" type="{ type: 'agent_end'; messages: AgentMessage[] }">
+  Emitted when the agent completes processing. Contains all new messages added during this run.
+</ResponseField>
+
+#### Turn Lifecycle
+
+<ResponseField name="turn_start" type="{ type: 'turn_start' }">
+  Emitted at the start of each turn (one assistant response + any tool calls/results).
+</ResponseField>
+
+<ResponseField name="turn_end" type="{ type: 'turn_end'; message: AgentMessage; toolResults: ToolResultMessage[] }">
+  Emitted when a turn completes. Contains the assistant message and any tool results from this turn.
+</ResponseField>
+
+#### Message Lifecycle
+
+<ResponseField name="message_start" type="{ type: 'message_start'; message: AgentMessage }">
+  Emitted when a new message starts (user, assistant, or tool result).
+</ResponseField>
+
+<ResponseField name="message_update" type="{ type: 'message_update'; message: AgentMessage; assistantMessageEvent: AssistantMessageEvent }">
+  Emitted during streaming of assistant messages. Only emitted for assistant messages.
+</ResponseField>
+
+<ResponseField name="message_end" type="{ type: 'message_end'; message: AgentMessage }">
+  Emitted when a message is complete and added to the conversation history.
+</ResponseField>
+
+#### Tool Execution
+
+<ResponseField name="tool_execution_start" type="{ type: 'tool_execution_start'; toolCallId: string; toolName: string; args: any }">
+  Emitted when a tool starts executing.
+</ResponseField>
+
+<ResponseField name="tool_execution_update" type="{ type: 'tool_execution_update'; toolCallId: string; toolName: string; args: any; partialResult: any }">
+  Emitted when a tool sends a partial result via the `onUpdate` callback.
+</ResponseField>
+
+<ResponseField name="tool_execution_end" type="{ type: 'tool_execution_end'; toolCallId: string; toolName: string; result: any; isError: boolean }">
+  Emitted when a tool completes. `isError` indicates whether the tool threw an error.
+</ResponseField>
+
+## Configuration Types
+
+### AgentContext
+
+```typescript
+interface AgentContext {
+  systemPrompt: string;
+  messages: AgentMessage[];
+  tools?: AgentTool<any>[];
+}
+```
+
+Context passed to the agent loop. Similar to `Context` from `@mariozechner/pi-ai` but uses `AgentTool` instead of `Tool`.
+
+### AgentLoopConfig
+
+```typescript
+interface AgentLoopConfig extends SimpleStreamOptions {
+  model: Model<any>;
+  convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
+  transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
+  getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
+  getSteeringMessages?: () => Promise<AgentMessage[]>;
+  getFollowUpMessages?: () => Promise<AgentMessage[]>;
+}
+```
+
+Configuration for the agent loop. Extends `SimpleStreamOptions` from `@mariozechner/pi-ai`.
+
+<ParamField path="model" type="Model<any>" required>
+  LLM model to use for generation.
+</ParamField>
+
+<ParamField path="convertToLlm" type="(messages: AgentMessage[]) => Message[] | Promise<Message[]>" required>
+  Converts AgentMessage[] to LLM-compatible Message[] before each LLM call.
+  
+  Each AgentMessage must be converted to a UserMessage, AssistantMessage, or ToolResultMessage. Messages that cannot be converted (e.g., UI-only notifications) should be filtered out.
+  
+  ```typescript
+  convertToLlm: (messages) => messages.flatMap(m => {
+    if (m.role === 'custom') {
+      return [{ role: 'user', content: m.content, timestamp: m.timestamp }];
+    }
+    if (m.role === 'notification') {
+      return []; // Filter out
+    }
+    return [m]; // Pass through standard messages
+  })
+  ```
+</ParamField>
+
+<ParamField path="transformContext" type="(messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>" optional>
+  Optional transform applied to the context before `convertToLlm`.
+  
+  Use for:
+  - Context window management (pruning old messages)
+  - Injecting context from external sources
+  
+  ```typescript
+  transformContext: async (messages) => {
+    if (estimateTokens(messages) > MAX_TOKENS) {
+      return pruneOldMessages(messages);
+    }
+    return messages;
+  }
+  ```
+</ParamField>
+
+<ParamField path="getApiKey" type="(provider: string) => Promise<string | undefined> | string | undefined" optional>
+  Resolves an API key dynamically for each LLM call.
+  
+  Useful for short-lived OAuth tokens (e.g., GitHub Copilot) that may expire during long-running tool execution.
+  
+  ```typescript
+  getApiKey: async (provider) => {
+    if (provider === 'github') {
+      return await refreshGitHubToken();
+    }
+    return process.env.API_KEY;
+  }
+  ```
+</ParamField>
+
+<ParamField path="getSteeringMessages" type="() => Promise<AgentMessage[]>" optional>
+  Returns steering messages to inject into the conversation mid-run.
+  
+  Called after each tool execution to check for user interruptions. If messages are returned, remaining tool calls are skipped and these messages are added to the context before the next LLM call.
+  
+  Use for "steering" the agent while it's working.
+</ParamField>
+
+<ParamField path="getFollowUpMessages" type="() => Promise<AgentMessage[]>" optional>
+  Returns follow-up messages to process after the agent would otherwise stop.
+  
+  Called when the agent has no more tool calls and no steering messages. If messages are returned, they're added to the context and the agent continues with another turn.
+  
+  Use for follow-up messages that should wait until the agent finishes.
+</ParamField>
+
+### StreamFn
+
+```typescript
+type StreamFn = (
+  ...args: Parameters<typeof streamSimple>
+) => ReturnType<typeof streamSimple> | Promise<ReturnType<typeof streamSimple>>;
+```
+
+Custom stream function type. Can be sync or async to support dynamic configuration lookup.
+
+```typescript
+const customStreamFn: StreamFn = async (model, context, options) => {
+  const config = await loadConfig();
+  return streamSimple(model, context, { ...options, ...config });
+};
+```
+
+## Transport Types
+
+### Transport
+
+```typescript
+type Transport = 'sse' | 'responses';
+```
+
+Preferred transport mechanism for LLM providers:
+- `'sse'`: Server-Sent Events (default, better for streaming)
+- `'responses'`: HTTP responses (better for compatibility)
+
+## Proxy Types
+
+### streamProxy
+
+```typescript
+function streamProxy(
+  model: Model<any>,
+  context: Context,
+  options: ProxyStreamOptions
+): ProxyMessageEventStream
+```
+
+Stream function that proxies through a backend server instead of calling LLM providers directly.
+
+```typescript
+import { streamProxy } from '@mariozechner/pi-agent-core';
+
+const agent = new Agent({
+  streamFn: (model, context, options) =>
+    streamProxy(model, context, {
+      ...options,
+      authToken: await getAuthToken(),
+      proxyUrl: 'https://api.example.com',
+    }),
+});
+```
+
+### ProxyStreamOptions
+
+```typescript
+interface ProxyStreamOptions extends SimpleStreamOptions {
+  authToken: string;
+  proxyUrl: string;
+}
+```
+
+<ParamField path="authToken" type="string" required>
+  Auth token for the proxy server.
+</ParamField>
+
+<ParamField path="proxyUrl" type="string" required>
+  Proxy server URL (e.g., `https://genai.example.com`).
+</ParamField>
+
+### ProxyAssistantMessageEvent
+
+```typescript
+type ProxyAssistantMessageEvent =
+  | { type: 'start' }
+  | { type: 'text_start'; contentIndex: number }
+  | { type: 'text_delta'; contentIndex: number; delta: string }
+  | { type: 'text_end'; contentIndex: number; contentSignature?: string }
+  | { type: 'thinking_start'; contentIndex: number }
+  | { type: 'thinking_delta'; contentIndex: number; delta: string }
+  | { type: 'thinking_end'; contentIndex: number; contentSignature?: string }
+  | { type: 'toolcall_start'; contentIndex: number; id: string; toolName: string }
+  | { type: 'toolcall_delta'; contentIndex: number; delta: string }
+  | { type: 'toolcall_end'; contentIndex: number }
+  | { type: 'done'; reason: 'stop' | 'length' | 'toolUse'; usage: AssistantMessage['usage'] }
+  | { type: 'error'; reason: 'aborted' | 'error'; errorMessage?: string; usage: AssistantMessage['usage'] };
+```
+
+Events sent by the proxy server. The `partial` field is stripped to reduce bandwidth - the client reconstructs it.
+
+## Loop Functions
+
+### agentLoop
+
+```typescript
+function agentLoop(
+  prompts: AgentMessage[],
+  context: AgentContext,
+  config: AgentLoopConfig,
+  signal?: AbortSignal,
+  streamFn?: StreamFn
+): EventStream<AgentEvent, AgentMessage[]>
+```
+
+Start an agent loop with new prompt messages. The prompts are added to the context and events are emitted.
+
+```typescript
+import { agentLoop } from '@mariozechner/pi-agent-core';
+
+const stream = agentLoop(
+  [{ role: 'user', content: 'Hello!', timestamp: Date.now() }],
+  { systemPrompt: 'You are helpful', messages: [], tools: [] },
+  config,
+  abortSignal
+);
+
+for await (const event of stream) {
+  console.log('Event:', event);
+}
+
+const allMessages = await stream.result();
+```
+
+### agentLoopContinue
+
+```typescript
+function agentLoopContinue(
+  context: AgentContext,
+  config: AgentLoopConfig,
+  signal?: AbortSignal,
+  streamFn?: StreamFn
+): EventStream<AgentEvent, AgentMessage[]>
+```
+
+Continue an agent loop from the current context without adding a new message. Used for retries.
+
+**Important:** The last message in context must convert to a `user` or `toolResult` message via `convertToLlm`.
+
+```typescript
+import { agentLoopContinue } from '@mariozechner/pi-agent-core';
+
+const stream = agentLoopContinue(context, config, abortSignal);
+
+for await (const event of stream) {
+  console.log('Event:', event);
+}
+```
+
+## Example: Custom Message Type
+
+```typescript
+// 1. Define your custom message type
+interface NotificationMessage {
+  role: 'notification';
+  level: 'info' | 'warning' | 'error';
+  message: string;
+  timestamp: number;
+}
+
+// 2. Extend CustomAgentMessages via declaration merging
+declare module '@mariozechner/pi-agent-core' {
+  interface CustomAgentMessages {
+    notification: NotificationMessage;
+  }
+}
+
+// 3. Now AgentMessage includes your type
+import { Agent } from '@mariozechner/pi-agent-core';
+
+const agent = new Agent({
+  convertToLlm: (messages) => {
+    return messages.flatMap(m => {
+      // Filter out notifications - they're UI-only
+      if (m.role === 'notification') {
+        return [];
+      }
+      // Pass through standard messages
+      return [m];
+    });
+  }
+});
+
+// 4. Add notification to conversation
+const notification: NotificationMessage = {
+  role: 'notification',
+  level: 'info',
+  message: 'Task completed successfully',
+  timestamp: Date.now()
+};
+
+agent.appendMessage(notification);
+```

@@ -1,0 +1,300 @@
+---
+title: "@mariozechner/pi-coding-agent"
+description: "Full-featured coding agent CLI with tools, sessions, and extensibility"
+---
+
+## Overview
+
+The `@mariozechner/pi-coding-agent` package is the flagship Pi package - a complete terminal-based coding agent with interactive TUI, session management, extension system, and built-in tools for reading, writing, editing, and executing code.
+
+<CardGroup cols={2}>
+  <Card title="Interactive Mode" icon="terminal">
+    Full TUI with editor, autocomplete, and streaming responses
+  </Card>
+  <Card title="Session Management" icon="timeline">
+    Tree-based branching, resume, and auto-save functionality
+  </Card>
+  <Card title="Extension System" icon="puzzle-piece">
+    TypeScript-based plugins for tools, commands, and UI
+  </Card>
+  <Card title="Multiple Modes" icon="layer-group">
+    Interactive, print, JSON, RPC, and SDK modes
+  </Card>
+</CardGroup>
+
+## Installation
+
+```bash
+npm install -g @mariozechner/pi-coding-agent
+```
+
+Or use locally in a project:
+
+```bash
+npm install @mariozechner/pi-coding-agent
+```
+
+## Quick Start
+
+### CLI Usage
+
+```bash
+# Interactive mode with Anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+pi
+
+# Interactive mode with OpenAI
+export OPENAI_API_KEY=sk-...
+pi --provider openai --model gpt-4o
+
+# Non-interactive print mode
+pi -p "What files are in the current directory?"
+
+# Continue previous session
+pi -c
+```
+
+### SDK Usage
+
+```typescript
+import { createAgentSession, AuthStorage, ModelRegistry, SessionManager } from "@mariozechner/pi-coding-agent";
+
+const authStorage = AuthStorage.create();
+const modelRegistry = new ModelRegistry(authStorage);
+
+const { session } = await createAgentSession({
+  sessionManager: SessionManager.inMemory(),
+  authStorage,
+  modelRegistry,
+});
+
+await session.prompt("What files are in the current directory?");
+```
+
+## Key Features
+
+### Built-in Tools
+
+The coding agent ships with powerful file and system tools:
+
+- **read** - Read file contents with offset/limit support
+- **write** - Create or overwrite files
+- **edit** - String replacement editing with exact matching
+- **bash** - Execute shell commands with timeout and workdir support
+- **grep** - Search file contents using regex patterns
+- **find** - Search for files by glob pattern
+- **ls** - List directory contents
+
+Tools can be configured via `--tools` flag:
+
+```bash
+# Only enable read and bash
+pi --tools read,bash
+
+# Disable all built-in tools
+pi --no-tools
+```
+
+### Session Management
+
+Sessions are stored as JSONL files with tree structure for branching:
+
+```bash
+# Continue most recent session
+pi -c
+
+# Browse and select from past sessions
+pi -r
+
+# Use specific session file
+pi --session path/to/session.jsonl
+
+# Ephemeral mode (don't save)
+pi --no-session
+```
+
+**Tree navigation:** Use `/tree` command to navigate session history, branch to different points, and create forks.
+
+**Compaction:** Automatic context management when approaching token limits. Customize via settings or extensions.
+
+### Extension System
+
+Extend pi with TypeScript modules that can:
+
+- Add custom tools
+- Register slash commands
+- Add keyboard shortcuts
+- Hook into events (tool calls, messages, session lifecycle)
+- Modify UI (overlays, widgets, custom editors)
+- Override built-in behavior
+
+```typescript
+// ~/.pi/agent/extensions/my-extension.ts
+export default function (pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "deploy",
+    description: "Deploy the application",
+    parameters: Type.Object({
+      environment: Type.String()
+    }),
+    execute: async (toolCallId, params, signal, onUpdate) => {
+      // Your deployment logic
+      return {
+        content: [{ type: "text", text: "Deployed to " + params.environment }]
+      };
+    }
+  });
+
+  pi.registerCommand("stats", {
+    description: "Show project stats",
+    execute: async (ctx) => {
+      ctx.notify("Lines of code: 12,345");
+    }
+  });
+
+  pi.on("tool_call", async (event, ctx) => {
+    console.log(`Tool called: ${event.name}`);
+  });
+}
+```
+
+See [Extensions Guide](/concepts/extensions) for detailed documentation.
+
+### Skills and Prompt Templates
+
+**Skills** are on-demand capability packages following the [Agent Skills](https://agentskills.io) standard:
+
+```markdown
+<!-- ~/.pi/agent/skills/deploy/SKILL.md -->
+# Deploy Application
+
+Use this skill when the user wants to deploy the application.
+
+## Steps
+1. Run tests
+2. Build production bundle
+3. Upload to server
+```
+
+**Prompt Templates** are reusable prompts with variable substitution:
+
+```markdown
+<!-- ~/.pi/agent/prompts/review.md -->
+Review this code for:
+- Security vulnerabilities
+- Performance issues
+- {{focus}}
+```
+
+### Multiple Modes
+
+| Mode | Usage | Description |
+|------|-------|-------------|
+| Interactive | `pi` | Full TUI with editor and streaming |
+| Print | `pi -p "message"` | Single message, print response |
+| JSON | `pi --mode json` | Event stream as JSON lines |
+| RPC | `pi --mode rpc` | JSON-RPC over stdin/stdout |
+| SDK | `import { createAgentSession }` | Programmatic API |
+
+## Configuration
+
+### Settings Files
+
+- `~/.pi/agent/settings.json` - Global settings
+- `.pi/settings.json` - Project-specific settings
+
+```json
+{
+  "thinking": "medium",
+  "theme": "dark",
+  "compaction": {
+    "enabled": true,
+    "keepRecentTurns": 5
+  }
+}
+```
+
+See [Customization Guide](/guides/customization) for all options.
+
+### Context Files
+
+Pi automatically loads `AGENTS.md` or `CLAUDE.md` files from:
+- `~/.pi/agent/AGENTS.md` (global)
+- Parent directories (walking up from cwd)
+- Current directory
+
+Use for project conventions, common patterns, and instructions.
+
+## API Reference
+
+For programmatic usage, see:
+
+- [SDK API](/api/coding-agent/sdk)
+- [Extension API](/api/coding-agent/extensions)
+- [Extension Hooks](/api/coding-agent/hooks)
+- [Tool Creation](/concepts/tools)
+
+## Examples
+
+### Custom Tool with Extension
+
+```typescript
+import { Type } from "@mariozechner/pi-coding-agent";
+
+export default function (pi) {
+  pi.registerTool({
+    name: "search_docs",
+    description: "Search documentation",
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query" })
+    }),
+    execute: async (id, { query }, signal) => {
+      const results = await searchDocs(query);
+      return {
+        content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
+      };
+    }
+  });
+}
+```
+
+### Session Branching
+
+```typescript
+import { createAgentSession } from "@mariozechner/pi-coding-agent";
+
+const { session } = await createAgentSession(config);
+
+await session.prompt("Implement feature X");
+// ... conversation continues
+
+// Branch from a specific point
+const tree = session.getTree();
+const branchPoint = tree.find(entry => entry.message.content.includes("feature X"));
+await session.switchToEntry(branchPoint.id);
+await session.prompt("Actually, implement feature Y instead");
+```
+
+## Package Structure
+
+```
+@mariozechner/pi-coding-agent/
+├── dist/               # Compiled output
+├── docs/               # Documentation
+├── examples/           # Example code
+│   ├── sdk/           # SDK examples
+│   └── extensions/    # Extension examples
+└── src/
+    ├── core/          # Core logic
+    ├── modes/         # Interactive, print, JSON, RPC modes
+    ├── cli.ts         # CLI entry point
+    └── index.ts       # SDK entry point
+```
+
+## Links
+
+- [GitHub Repository](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
+- [npm Package](https://www.npmjs.com/package/@mariozechner/pi-coding-agent)
+- [Extensions Guide](/concepts/extensions)
+- [Skills Documentation](/guides/customization#skills)
+- [Session Format](/concepts/sessions)

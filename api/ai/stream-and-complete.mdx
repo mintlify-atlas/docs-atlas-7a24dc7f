@@ -1,0 +1,487 @@
+---
+title: 'stream() and complete()'
+description: 'Core streaming and completion functions for generating assistant messages'
+---
+
+## Overview
+
+The Pi AI toolkit provides four main functions for generating assistant messages:
+
+- **`stream()`** - Stream assistant messages with full event control
+- **`complete()`** - Get complete assistant message without streaming
+- **`streamSimple()`** - Stream with simplified reasoning options
+- **`completeSimple()`** - Complete with simplified reasoning options
+
+## stream()
+
+Stream an assistant message with granular event handling.
+
+```typescript
+function stream<TApi extends Api>(
+  model: Model<TApi>,
+  context: Context,
+  options?: ProviderStreamOptions
+): AssistantMessageEventStream
+```
+
+<ParamField path="model" type="Model<TApi>" required>
+  The model to use for generation. Get models via `getModel(provider, modelId)`.
+</ParamField>
+
+<ParamField path="context" type="Context" required>
+  The conversation context including system prompt, messages, and tools.
+  
+  ```typescript
+  interface Context {
+    systemPrompt?: string;
+    messages: Message[];
+    tools?: Tool[];
+  }
+  ```
+</ParamField>
+
+<ParamField path="options" type="ProviderStreamOptions">
+  Optional provider-specific streaming options.
+  
+  <Expandable title="StreamOptions properties">
+    <ParamField path="temperature" type="number">
+      Controls randomness (0.0 to 2.0). Lower is more deterministic.
+    </ParamField>
+    
+    <ParamField path="maxTokens" type="number">
+      Maximum tokens to generate.
+    </ParamField>
+    
+    <ParamField path="signal" type="AbortSignal">
+      Abort signal to cancel the request.
+    </ParamField>
+    
+    <ParamField path="apiKey" type="string">
+      API key for the provider. Falls back to environment variables.
+    </ParamField>
+    
+    <ParamField path="transport" type="'sse' | 'websocket' | 'auto'">
+      Preferred transport for providers that support multiple transports.
+    </ParamField>
+    
+    <ParamField path="cacheRetention" type="'none' | 'short' | 'long'" default="short">
+      Prompt cache retention preference. Providers map this to their supported values.
+    </ParamField>
+    
+    <ParamField path="sessionId" type="string">
+      Session identifier for providers that support session-based caching.
+    </ParamField>
+    
+    <ParamField path="onPayload" type="(payload: unknown) => void">
+      Callback for inspecting provider payloads before sending.
+    </ParamField>
+    
+    <ParamField path="headers" type="Record<string, string>">
+      Custom HTTP headers to include in API requests.
+    </ParamField>
+    
+    <ParamField path="maxRetryDelayMs" type="number" default="60000">
+      Maximum delay in milliseconds to wait for a retry when the server requests a long wait.
+    </ParamField>
+    
+    <ParamField path="metadata" type="Record<string, unknown>">
+      Optional metadata to include in API requests. Providers extract the fields they understand.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="AssistantMessageEventStream" type="AsyncIterable<AssistantMessageEvent>">
+  An async iterable stream that emits events as the assistant message is generated.
+  Call `.result()` to get the final `AssistantMessage` after streaming completes.
+</ResponseField>
+
+### Example
+
+```typescript
+import { getModel, stream } from '@mariozechner/pi-ai';
+
+const model = getModel('openai', 'gpt-4o-mini');
+const s = stream(model, {
+  systemPrompt: 'You are a helpful assistant.',
+  messages: [{ role: 'user', content: 'Hello!' }]
+});
+
+for await (const event of s) {
+  switch (event.type) {
+    case 'start':
+      console.log(`Starting with ${event.partial.model}`);
+      break;
+    case 'text_delta':
+      process.stdout.write(event.delta);
+      break;
+    case 'thinking_delta':
+      console.log('[Thinking]', event.delta);
+      break;
+    case 'toolcall_end':
+      console.log('Tool:', event.toolCall.name, event.toolCall.arguments);
+      break;
+    case 'done':
+      console.log('\nFinished:', event.reason);
+      break;
+    case 'error':
+      console.error('Error:', event.error.errorMessage);
+      break;
+  }
+}
+
+// Get final message
+const message = await s.result();
+console.log('Tokens:', message.usage.totalTokens);
+console.log('Cost: $', message.usage.cost.total);
+```
+
+## complete()
+
+Get a complete assistant message without streaming.
+
+```typescript
+async function complete<TApi extends Api>(
+  model: Model<TApi>,
+  context: Context,
+  options?: ProviderStreamOptions
+): Promise<AssistantMessage>
+```
+
+<ParamField path="model" type="Model<TApi>" required>
+  The model to use for generation.
+</ParamField>
+
+<ParamField path="context" type="Context" required>
+  The conversation context.
+</ParamField>
+
+<ParamField path="options" type="ProviderStreamOptions">
+  Same options as `stream()`.
+</ParamField>
+
+<ResponseField name="AssistantMessage" type="Promise<AssistantMessage>">
+  The complete assistant message.
+  
+  ```typescript
+  interface AssistantMessage {
+    role: "assistant";
+    content: (TextContent | ThinkingContent | ToolCall)[];
+    api: Api;
+    provider: Provider;
+    model: string;
+    usage: Usage;
+    stopReason: StopReason;
+    errorMessage?: string;
+    timestamp: number;
+  }
+  ```
+</ResponseField>
+
+### Example
+
+```typescript
+import { getModel, complete } from '@mariozechner/pi-ai';
+
+const model = getModel('anthropic', 'claude-3-5-haiku-20241022');
+const response = await complete(model, {
+  messages: [{ role: 'user', content: 'Explain TypeScript in one sentence.' }]
+});
+
+for (const block of response.content) {
+  if (block.type === 'text') {
+    console.log(block.text);
+  }
+}
+
+console.log(`Cost: $${response.usage.cost.total.toFixed(4)}`);
+```
+
+## streamSimple()
+
+Stream with simplified reasoning/thinking options. Maps unified `reasoning` levels to provider-specific parameters.
+
+```typescript
+function streamSimple<TApi extends Api>(
+  model: Model<TApi>,
+  context: Context,
+  options?: SimpleStreamOptions
+): AssistantMessageEventStream
+```
+
+<ParamField path="options" type="SimpleStreamOptions">
+  Extends `StreamOptions` with reasoning support.
+  
+  <Expandable title="SimpleStreamOptions properties">
+    <ParamField path="reasoning" type="'minimal' | 'low' | 'medium' | 'high' | 'xhigh'">
+      Unified thinking level. Automatically maps to provider-specific parameters:
+      - OpenAI: `reasoning_effort`
+      - Anthropic: `thinking_enabled` + `thinking_budget_tokens`
+      - Google: `thinking.enabled` + `thinking.budgetTokens`
+    </ParamField>
+    
+    <ParamField path="thinkingBudgets" type="ThinkingBudgets">
+      Custom token budgets for thinking levels (token-based providers only).
+      
+      ```typescript
+      interface ThinkingBudgets {
+        minimal?: number;
+        low?: number;
+        medium?: number;
+        high?: number;
+      }
+      ```
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Example
+
+```typescript
+import { getModel, streamSimple } from '@mariozechner/pi-ai';
+
+const model = getModel('openai', 'gpt-5-mini');
+const s = streamSimple(model, {
+  messages: [{ role: 'user', content: 'Solve: 2x + 5 = 13' }]
+}, {
+  reasoning: 'medium'  // Maps to appropriate provider parameter
+});
+
+for await (const event of s) {
+  if (event.type === 'thinking_delta') {
+    console.log('[Thinking]', event.delta);
+  } else if (event.type === 'text_delta') {
+    process.stdout.write(event.delta);
+  }
+}
+```
+
+## completeSimple()
+
+Get complete response with simplified reasoning options.
+
+```typescript
+async function completeSimple<TApi extends Api>(
+  model: Model<TApi>,
+  context: Context,
+  options?: SimpleStreamOptions
+): Promise<AssistantMessage>
+```
+
+Parameters and return type are the same as `streamSimple()` and `complete()`.
+
+### Example
+
+```typescript
+import { getModel, completeSimple } from '@mariozechner/pi-ai';
+
+const model = getModel('anthropic', 'claude-sonnet-4-20250514');
+const response = await completeSimple(model, {
+  messages: [{ role: 'user', content: 'Calculate 25 * 18' }]
+}, {
+  reasoning: 'high'
+});
+
+for (const block of response.content) {
+  if (block.type === 'thinking') {
+    console.log('Thinking:', block.thinking);
+  } else if (block.type === 'text') {
+    console.log('Answer:', block.text);
+  }
+}
+```
+
+## Context
+
+The `Context` interface represents a conversation's state.
+
+```typescript
+interface Context {
+  systemPrompt?: string;
+  messages: Message[];
+  tools?: Tool[];
+}
+```
+
+<ParamField path="systemPrompt" type="string">
+  System-level instructions for the assistant.
+</ParamField>
+
+<ParamField path="messages" type="Message[]" required>
+  Conversation history. Can include `UserMessage`, `AssistantMessage`, and `ToolResultMessage`.
+  
+  ```typescript
+  type Message = UserMessage | AssistantMessage | ToolResultMessage;
+  
+  interface UserMessage {
+    role: "user";
+    content: string | (TextContent | ImageContent)[];
+    timestamp: number;
+  }
+  ```
+</ParamField>
+
+<ParamField path="tools" type="Tool[]">
+  Available tools for the assistant to call. See [tools documentation](/api/ai/tools).
+</ParamField>
+
+### Context Serialization
+
+Context objects are fully JSON-serializable:
+
+```typescript
+import { Context } from '@mariozechner/pi-ai';
+
+const context: Context = {
+  systemPrompt: 'You are helpful.',
+  messages: [{ role: 'user', content: 'Hello', timestamp: Date.now() }]
+};
+
+// Serialize
+const json = JSON.stringify(context);
+localStorage.setItem('conversation', json);
+
+// Deserialize
+const restored: Context = JSON.parse(localStorage.getItem('conversation')!);
+```
+
+## Events
+
+The `AssistantMessageEventStream` emits these event types:
+
+<ResponseField name="start" type="{ type: 'start'; partial: AssistantMessage }">
+  Stream begins. Contains initial message structure.
+</ResponseField>
+
+<ResponseField name="text_start" type="{ type: 'text_start'; contentIndex: number; partial: AssistantMessage }">
+  Text block starts at the given content index.
+</ResponseField>
+
+<ResponseField name="text_delta" type="{ type: 'text_delta'; contentIndex: number; delta: string; partial: AssistantMessage }">
+  Text chunk received. `delta` contains the new text.
+</ResponseField>
+
+<ResponseField name="text_end" type="{ type: 'text_end'; contentIndex: number; content: string; partial: AssistantMessage }">
+  Text block complete. `content` contains the full text.
+</ResponseField>
+
+<ResponseField name="thinking_start" type="{ type: 'thinking_start'; contentIndex: number; partial: AssistantMessage }">
+  Thinking block starts (for models with reasoning capabilities).
+</ResponseField>
+
+<ResponseField name="thinking_delta" type="{ type: 'thinking_delta'; contentIndex: number; delta: string; partial: AssistantMessage }">
+  Thinking chunk received.
+</ResponseField>
+
+<ResponseField name="thinking_end" type="{ type: 'thinking_end'; contentIndex: number; content: string; partial: AssistantMessage }">
+  Thinking block complete.
+</ResponseField>
+
+<ResponseField name="toolcall_start" type="{ type: 'toolcall_start'; contentIndex: number; partial: AssistantMessage }">
+  Tool call begins.
+</ResponseField>
+
+<ResponseField name="toolcall_delta" type="{ type: 'toolcall_delta'; contentIndex: number; delta: string; partial: AssistantMessage }">
+  Tool arguments streaming. `partial.content[contentIndex].arguments` contains partially parsed JSON.
+  
+  <Warning>
+    Arguments may be incomplete during `toolcall_delta`. Always check for field existence.
+  </Warning>
+</ResponseField>
+
+<ResponseField name="toolcall_end" type="{ type: 'toolcall_end'; contentIndex: number; toolCall: ToolCall; partial: AssistantMessage }">
+  Tool call complete. `toolCall` contains the full parsed tool call.
+  
+  ```typescript
+  interface ToolCall {
+    type: "toolCall";
+    id: string;
+    name: string;
+    arguments: Record<string, any>;
+    thoughtSignature?: string;  // Google-specific
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="done" type="{ type: 'done'; reason: StopReason; message: AssistantMessage }">
+  Stream complete successfully. `reason` is `"stop"`, `"length"`, or `"toolUse"`.
+</ResponseField>
+
+<ResponseField name="error" type="{ type: 'error'; reason: 'error' | 'aborted'; error: AssistantMessage }">
+  Error occurred. `error` contains partial message and error details.
+</ResponseField>
+
+## Stop Reasons
+
+Every `AssistantMessage` has a `stopReason` field:
+
+```typescript
+type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
+```
+
+<ResponseField name="stop" type="string">
+  Normal completion - the model finished its response.
+</ResponseField>
+
+<ResponseField name="length" type="string">
+  Output hit the maximum token limit.
+</ResponseField>
+
+<ResponseField name="toolUse" type="string">
+  Model is calling tools and expects tool results.
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  An error occurred during generation. Check `errorMessage` field.
+</ResponseField>
+
+<ResponseField name="aborted" type="string">
+  Request was cancelled via `AbortSignal`.
+</ResponseField>
+
+## Aborting Requests
+
+Use `AbortSignal` to cancel in-progress requests:
+
+```typescript
+import { getModel, stream } from '@mariozechner/pi-ai';
+
+const model = getModel('openai', 'gpt-4o-mini');
+const controller = new AbortController();
+
+// Abort after 2 seconds
+setTimeout(() => controller.abort(), 2000);
+
+const s = stream(model, {
+  messages: [{ role: 'user', content: 'Write a long story' }]
+}, {
+  signal: controller.signal
+});
+
+for await (const event of s) {
+  if (event.type === 'text_delta') {
+    process.stdout.write(event.delta);
+  } else if (event.type === 'error' && event.reason === 'aborted') {
+    console.log('\nRequest aborted');
+  }
+}
+
+const response = await s.result();
+if (response.stopReason === 'aborted') {
+  console.log('Partial content:', response.content);
+  console.log('Tokens used:', response.usage.totalTokens);
+}
+```
+
+Aborted messages can be added to context and continued:
+
+```typescript
+const context = { messages: [] };
+
+// First request gets aborted
+const partial = await complete(model, context, { signal: abortSignal });
+context.messages.push(partial);
+
+// Continue the conversation
+context.messages.push({ role: 'user', content: 'Please continue' });
+const continuation = await complete(model, context);
+```

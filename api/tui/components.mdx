@@ -1,0 +1,392 @@
+---
+title: Components
+description: TUI component system and built-in components
+---
+
+# Components
+
+The Pi-TUI component system provides a declarative API for building terminal user interfaces with differential rendering.
+
+## Component Interface
+
+All TUI components must implement the Component interface.
+
+```typescript
+interface Component {
+  render(width: number): string[];
+  handleInput?(data: string): void;
+  wantsKeyRelease?: boolean;
+  invalidate(): void;
+}
+```
+
+### Methods
+
+<ParamField path="render" type="(width: number) => string[]" required>
+  Renders the component to an array of strings (one per line) for the given viewport width. Must respect the width constraint.
+</ParamField>
+
+<ParamField path="handleInput" type="(data: string) => void">
+  Optional handler for keyboard input when component has focus. Receives raw terminal input data.
+</ParamField>
+
+<ParamField path="invalidate" type="() => void" required>
+  Invalidates any cached rendering state. Called when theme changes or when component needs to re-render from scratch.
+</ParamField>
+
+### Properties
+
+<ParamField path="wantsKeyRelease" type="boolean" default="false">
+  If true, component receives key release events (Kitty protocol). Default is false - release events are filtered out.
+</ParamField>
+
+## Focusable Interface
+
+Components that can receive focus and display a hardware cursor implement the Focusable interface.
+
+```typescript
+interface Focusable {
+  focused: boolean;
+}
+```
+
+<ParamField path="focused" type="boolean" required>
+  Set by TUI when focus changes. When true, component should emit `CURSOR_MARKER` at the cursor position in its render output.
+</ParamField>
+
+### Type Guard
+
+```typescript
+function isFocusable(component: Component | null): component is Component & Focusable
+```
+
+## Built-in Components
+
+### Container
+
+Container component that renders children sequentially.
+
+```typescript
+class Container implements Component {
+  children: Component[];
+  
+  addChild(component: Component): void;
+  removeChild(component: Component): void;
+  clear(): void;
+}
+```
+
+#### Example
+
+```typescript
+import { Container, Text } from '@pi-ai/tui';
+
+const container = new Container();
+container.addChild(new Text('Header'));
+container.addChild(new Text('Body'));
+container.addChild(new Text('Footer'));
+```
+
+### Text
+
+Displays multi-line text with word wrapping and padding.
+
+```typescript
+class Text implements Component {
+  constructor(
+    text?: string,
+    paddingX?: number,
+    paddingY?: number,
+    customBgFn?: (text: string) => string
+  );
+  
+  setText(text: string): void;
+  setCustomBgFn(customBgFn?: (text: string) => string): void;
+}
+```
+
+#### Parameters
+
+<ParamField path="text" type="string" default="''">
+  Text content to display
+</ParamField>
+
+<ParamField path="paddingX" type="number" default="1">
+  Left/right padding in columns
+</ParamField>
+
+<ParamField path="paddingY" type="number" default="1">
+  Top/bottom padding in rows
+</ParamField>
+
+<ParamField path="customBgFn" type="(text: string) => string">
+  Optional function to apply background color
+</ParamField>
+
+#### Example
+
+```typescript
+import { Text } from '@pi-ai/tui';
+import chalk from 'chalk';
+
+const text = new Text(
+  'Hello, world!',
+  2,  // 2 columns padding
+  1,  // 1 row padding
+  chalk.bgBlue  // Blue background
+);
+
+text.setText('Updated content');
+```
+
+### Box
+
+Container that applies padding and background to all children.
+
+```typescript
+class Box implements Component {
+  children: Component[];
+  
+  constructor(
+    paddingX?: number,
+    paddingY?: number,
+    bgFn?: (text: string) => string
+  );
+  
+  addChild(component: Component): void;
+  removeChild(component: Component): void;
+  clear(): void;
+  setBgFn(bgFn?: (text: string) => string): void;
+}
+```
+
+#### Example
+
+```typescript
+import { Box, Text } from '@pi-ai/tui';
+import chalk from 'chalk';
+
+const box = new Box(2, 1, chalk.bgGray);
+box.addChild(new Text('Boxed content'));
+```
+
+### Input
+
+Single-line text input with horizontal scrolling.
+
+```typescript
+class Input implements Component, Focusable {
+  focused: boolean;
+  onSubmit?: (value: string) => void;
+  onEscape?: () => void;
+  
+  getValue(): string;
+  setValue(value: string): void;
+  handleInput(data: string): void;
+}
+```
+
+#### Example
+
+```typescript
+import { Input } from '@pi-ai/tui';
+
+const input = new Input();
+input.onSubmit = (value) => {
+  console.log('Submitted:', value);
+};
+input.onEscape = () => {
+  console.log('Cancelled');
+};
+
+tui.setFocus(input);
+```
+
+#### Features
+
+- Emacs-style keybindings (configurable)
+- Bracketed paste support
+- Kill ring for cut/yank operations
+- Undo/redo support
+- Word navigation
+- Horizontal scrolling for long input
+
+### Loader
+
+Animated spinner with customizable message.
+
+```typescript
+class Loader extends Text {
+  constructor(
+    ui: TUI,
+    spinnerColorFn: (str: string) => string,
+    messageColorFn: (str: string) => string,
+    message?: string
+  );
+  
+  start(): void;
+  stop(): void;
+  setMessage(message: string): void;
+}
+```
+
+#### Example
+
+```typescript
+import { Loader } from '@pi-ai/tui';
+import chalk from 'chalk';
+
+const loader = new Loader(
+  tui,
+  chalk.cyan,
+  chalk.gray,
+  'Processing...'
+);
+
+loader.setMessage('Almost done...');
+loader.stop();
+```
+
+### SelectList
+
+Scrollable list with keyboard navigation.
+
+```typescript
+interface SelectItem {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+interface SelectListTheme {
+  selectedPrefix: (text: string) => string;
+  selectedText: (text: string) => string;
+  description: (text: string) => string;
+  scrollInfo: (text: string) => string;
+  noMatch: (text: string) => string;
+}
+
+class SelectList implements Component {
+  onSelect?: (item: SelectItem) => void;
+  onCancel?: () => void;
+  onSelectionChange?: (item: SelectItem) => void;
+  
+  constructor(
+    items: SelectItem[],
+    maxVisible: number,
+    theme: SelectListTheme
+  );
+  
+  setFilter(filter: string): void;
+  setSelectedIndex(index: number): void;
+  getSelectedItem(): SelectItem | null;
+  handleInput(keyData: string): void;
+}
+```
+
+#### Example
+
+```typescript
+import { SelectList } from '@pi-ai/tui';
+import chalk from 'chalk';
+
+const items = [
+  { value: 'start', label: 'Start Server', description: 'Launch the dev server' },
+  { value: 'build', label: 'Build', description: 'Create production build' },
+  { value: 'test', label: 'Test', description: 'Run test suite' },
+];
+
+const theme = {
+  selectedPrefix: chalk.cyan,
+  selectedText: chalk.cyan.bold,
+  description: chalk.gray,
+  scrollInfo: chalk.dim,
+  noMatch: chalk.red,
+};
+
+const selectList = new SelectList(items, 5, theme);
+selectList.onSelect = (item) => {
+  console.log('Selected:', item.value);
+};
+
+tui.setFocus(selectList);
+```
+
+## Cursor Marker
+
+Focusable components should emit the `CURSOR_MARKER` constant at the cursor position when `focused` is true. The TUI will position the hardware cursor there for proper IME candidate window positioning.
+
+```typescript
+const CURSOR_MARKER = '\x1b_pi:c\x07';  // Zero-width APC sequence
+```
+
+### Example
+
+```typescript
+import { CURSOR_MARKER, Focusable, Component } from '@pi-ai/tui';
+
+class MyInput implements Component, Focusable {
+  focused = false;
+  private cursor = 0;
+  private value = '';
+  
+  render(width: number): string[] {
+    const marker = this.focused ? CURSOR_MARKER : '';
+    const beforeCursor = this.value.slice(0, this.cursor);
+    const afterCursor = this.value.slice(this.cursor);
+    
+    return [beforeCursor + marker + afterCursor];
+  }
+  
+  invalidate() {}
+}
+```
+
+## Creating Custom Components
+
+Implement the Component interface and optionally Focusable:
+
+```typescript
+import { Component, Focusable, CURSOR_MARKER } from '@pi-ai/tui';
+import { visibleWidth } from '@pi-ai/tui';
+
+class CustomComponent implements Component, Focusable {
+  focused = false;
+  
+  render(width: number): string[] {
+    const lines: string[] = [];
+    
+    // Build content
+    let line = 'Custom content';
+    
+    // Add cursor marker if focused
+    if (this.focused) {
+      line += CURSOR_MARKER;
+    }
+    
+    // Ensure line doesn't exceed width
+    if (visibleWidth(line) > width) {
+      line = truncateToWidth(line, width);
+    }
+    
+    lines.push(line);
+    return lines;
+  }
+  
+  handleInput(data: string): void {
+    // Handle keyboard input
+  }
+  
+  invalidate(): void {
+    // Clear cached state
+  }
+}
+```
+
+### Best Practices
+
+1. **Always respect the width parameter** - Lines exceeding terminal width will crash the TUI
+2. **Use `visibleWidth()` to measure text** - Accounts for ANSI codes and wide characters
+3. **Implement efficient caching** - Store rendered output and only regenerate when needed
+4. **Call `invalidate()` on theme changes** - Clear cached output with styled colors
+5. **Emit `CURSOR_MARKER` when focused** - Enables proper IME positioning

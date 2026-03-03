@@ -1,0 +1,498 @@
+---
+title: "@mariozechner/pi-tui"
+description: "Terminal UI framework with differential rendering and synchronized output"
+---
+
+## Overview
+
+The `@mariozechner/pi-tui` package is a minimal terminal UI framework designed for building flicker-free interactive CLI applications. It features differential rendering, synchronized output, and a component-based architecture.
+
+<CardGroup cols={2}>
+  <Card title="Differential Rendering" icon="arrows-rotate">
+    Three-strategy rendering that only updates what changed
+  </Card>
+  <Card title="Synchronized Output" icon="lock">
+    Uses CSI 2026 for atomic screen updates with zero flicker
+  </Card>
+  <Card title="Component-Based" icon="cubes">
+    Simple Component interface with render() method
+  </Card>
+  <Card title="Rich Components" icon="palette">
+    Text, Input, Editor, Markdown, SelectList, Image, and more
+  </Card>
+</CardGroup>
+
+## Installation
+
+```bash
+npm install @mariozechner/pi-tui
+```
+
+## Quick Start
+
+```typescript
+import { TUI, Text, Editor, ProcessTerminal } from "@mariozechner/pi-tui";
+
+const terminal = new ProcessTerminal();
+const tui = new TUI(terminal);
+
+tui.addChild(new Text("Welcome to my app!"));
+
+const editor = new Editor(tui, editorTheme);
+editor.onSubmit = (text) => {
+  console.log("You said:", text);
+  tui.addChild(new Text(`Echo: ${text}`));
+};
+
+tui.addChild(editor);
+tui.start();
+```
+
+## Key Features
+
+### Differential Rendering
+
+The TUI intelligently updates only what changed:
+
+1. **First Render**: Output all lines without clearing scrollback
+2. **Width Changed**: Clear screen and full re-render
+3. **Normal Update**: Move cursor to first changed line, clear to end, render changes
+
+All updates wrapped in synchronized output (`\x1b[?2026h` ... `\x1b[?2026l`) for flicker-free rendering.
+
+### Component Interface
+
+All components implement a simple interface:
+
+```typescript
+interface Component {
+  render(width: number): string[];
+  handleInput?(data: string): void;
+  invalidate?(): void;
+}
+```
+
+**Important:** Each line returned by `render()` must not exceed the `width` parameter. Use `truncateToWidth()` or manual wrapping.
+
+### Built-in Components
+
+**Layout:**
+- `Container` - Groups child components
+- `Box` - Container with padding and background
+- `Spacer` - Empty vertical spacing
+
+**Text:**
+- `Text` - Multi-line text with word wrapping
+- `TruncatedText` - Single-line text with truncation
+- `Markdown` - Markdown rendering with syntax highlighting
+
+**Input:**
+- `Input` - Single-line text input
+- `Editor` - Multi-line editor with autocomplete and paste handling
+
+**Selection:**
+- `SelectList` - Interactive list with keyboard navigation
+- `SettingsList` - Settings panel with value cycling
+
+**Feedback:**
+- `Loader` - Animated loading spinner
+- `CancellableLoader` - Loader with Escape key abort
+- `Image` - Inline images (Kitty/iTerm2 protocols)
+
+### Overlay System
+
+Render components on top of existing content:
+
+```typescript
+// Show centered overlay
+const handle = tui.showOverlay(dialogComponent);
+
+// Show with custom options
+const handle = tui.showOverlay(menuComponent, {
+  anchor: "top-right",
+  offsetX: -2,
+  offsetY: 1,
+  width: "50%",
+  maxHeight: 20
+});
+
+// Control visibility
+handle.hide();           // Permanently remove
+handle.setHidden(true);  // Temporarily hide
+handle.setHidden(false); // Show again
+
+// Hide topmost overlay
+tui.hideOverlay();
+
+// Check if overlay visible
+if (tui.hasOverlay()) {
+  console.log("Overlay active");
+}
+```
+
+**Anchor values:** `center`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, `top-center`, `bottom-center`, `left-center`, `right-center`
+
+### Keyboard Input
+
+Use `matchesKey()` with the `Key` helper:
+
+```typescript
+import { matchesKey, Key } from "@mariozechner/pi-tui";
+
+component.handleInput = (data) => {
+  if (matchesKey(data, Key.ctrl("c"))) {
+    process.exit(0);
+  } else if (matchesKey(data, Key.enter)) {
+    submit();
+  } else if (matchesKey(data, Key.escape)) {
+    cancel();
+  } else if (matchesKey(data, Key.up)) {
+    moveUp();
+  }
+};
+```
+
+**Key identifiers:**
+- Basic: `Key.enter`, `Key.escape`, `Key.tab`, `Key.space`, `Key.backspace`, `Key.delete`
+- Arrows: `Key.up`, `Key.down`, `Key.left`, `Key.right`
+- Modifiers: `Key.ctrl("c")`, `Key.shift("tab")`, `Key.alt("left")`, `Key.ctrlShift("p")`
+
+### IME Support (CJK Input)
+
+Components with text cursors should implement `Focusable` for IME support:
+
+```typescript
+import { CURSOR_MARKER, type Component, type Focusable } from "@mariozechner/pi-tui";
+
+class MyInput implements Component, Focusable {
+  focused: boolean = false;  // Set by TUI
+  
+  render(width: number): string[] {
+    const marker = this.focused ? CURSOR_MARKER : "";
+    return [`> ${before}${marker}\x1b[7m${cursor}\x1b[27m${after}`];
+  }
+}
+```
+
+The TUI positions the hardware cursor at `CURSOR_MARKER` location for CJK IME candidate windows.
+
+### Autocomplete
+
+Combine slash commands and file path completion:
+
+```typescript
+import { CombinedAutocompleteProvider } from "@mariozechner/pi-tui";
+
+const provider = new CombinedAutocompleteProvider(
+  [
+    { name: "help", description: "Show help" },
+    { name: "clear", description: "Clear screen" }
+  ],
+  process.cwd()  // base path for file completion
+);
+
+editor.setAutocompleteProvider(provider);
+```
+
+**Features:**
+- Type `/` for slash commands
+- Press `Tab` for file paths
+- Supports `~/`, `./`, `../`, and `@` prefix
+
+## Component Examples
+
+### Text with Background
+
+```typescript
+import { Text } from "@mariozechner/pi-tui";
+import chalk from "chalk";
+
+const text = new Text(
+  "Hello World",
+  1,  // paddingX
+  1,  // paddingY
+  (text) => chalk.bgBlue(text)  // background function
+);
+
+text.setText("Updated text");
+text.setCustomBgFn((text) => chalk.bgRed(text));
+```
+
+### Multi-line Editor
+
+```typescript
+import { Editor } from "@mariozechner/pi-tui";
+
+const theme = {
+  borderColor: (s) => chalk.cyan(s),
+  selectList: {
+    selectedPrefix: (s) => chalk.green(s),
+    selectedText: (s) => chalk.green.bold(s),
+    description: (s) => chalk.gray(s),
+    scrollInfo: (s) => chalk.dim(s),
+    noMatch: (s) => chalk.yellow(s)
+  }
+};
+
+const editor = new Editor(tui, theme, { paddingX: 1 });
+
+editor.onSubmit = (text) => {
+  console.log("Submitted:", text);
+};
+
+editor.onChange = (text) => {
+  console.log("Changed:", text);
+};
+
+// Temporarily disable submit (e.g., while processing)
+editor.disableSubmit = true;
+
+// Add autocomplete
+editor.setAutocompleteProvider(autocompleteProvider);
+```
+
+**Key Bindings:**
+- `Enter` - Submit (if not disabled)
+- `Shift+Enter`, `Ctrl+Enter`, `Alt+Enter` - New line
+- `Tab` - Autocomplete
+- `Ctrl+K` - Delete to end of line
+- `Ctrl+W` - Delete word backwards
+
+### Markdown Rendering
+
+```typescript
+import { Markdown } from "@mariozechner/pi-tui";
+
+const theme = {
+  heading: (s) => chalk.bold.cyan(s),
+  code: (s) => chalk.yellow(s),
+  codeBlock: (s) => chalk.gray(s),
+  link: (s) => chalk.blue.underline(s),
+  bold: (s) => chalk.bold(s),
+  // ... more theme options
+};
+
+const md = new Markdown(
+  "# Hello\n\nSome **bold** text",
+  1,  // paddingX
+  1,  // paddingY
+  theme
+);
+
+md.setText("## Updated\n\nNew content");
+```
+
+### Interactive List
+
+```typescript
+import { SelectList } from "@mariozechner/pi-tui";
+
+const items = [
+  { value: "opt1", label: "Option 1", description: "First option" },
+  { value: "opt2", label: "Option 2", description: "Second option" }
+];
+
+const list = new SelectList(items, 10, theme);
+
+list.onSelect = (item) => {
+  console.log("Selected:", item.value);
+};
+
+list.onCancel = () => {
+  console.log("Cancelled");
+};
+
+list.setFilter("opt");  // Filter items
+```
+
+### Inline Images
+
+```typescript
+import { Image } from "@mariozechner/pi-tui";
+import { readFileSync } from "fs";
+
+const imageBuffer = readFileSync("screenshot.png");
+const base64Data = imageBuffer.toString("base64");
+
+const image = new Image(
+  base64Data,
+  "image/png",
+  { fallbackColor: (s) => chalk.gray(s) },
+  { maxWidthCells: 80, maxHeightCells: 24 }
+);
+
+tui.addChild(image);
+```
+
+Supported terminals: Kitty, Ghostty, WezTerm, iTerm2. Falls back to text placeholder on unsupported terminals.
+
+### Loading Spinner
+
+```typescript
+import { Loader, CancellableLoader } from "@mariozechner/pi-tui";
+
+// Basic loader
+const loader = new Loader(
+  tui,
+  (s) => chalk.cyan(s),    // spinner color
+  (s) => chalk.gray(s),    // message color
+  "Loading..."
+);
+
+loader.start();
+loader.setMessage("Still working...");
+loader.stop();
+
+// Cancellable loader with AbortSignal
+const cancellable = new CancellableLoader(tui, spinnerFn, msgFn, "Processing...");
+cancellable.onAbort = () => console.log("User cancelled");
+
+fetch(url, { signal: cancellable.signal })
+  .then(handleResult)
+  .finally(() => cancellable.stop());
+```
+
+## Creating Custom Components
+
+### Basic Component
+
+```typescript
+import { Component, truncateToWidth, matchesKey, Key } from "@mariozechner/pi-tui";
+
+class Counter implements Component {
+  private count = 0;
+  public onIncrement?: () => void;
+  
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.up)) {
+      this.count++;
+      this.onIncrement?.();
+    } else if (matchesKey(data, Key.down)) {
+      this.count = Math.max(0, this.count - 1);
+    }
+  }
+  
+  render(width: number): string[] {
+    return [truncateToWidth(`Count: ${this.count}`, width)];
+  }
+}
+```
+
+### Component with Caching
+
+```typescript
+import { Component, truncateToWidth } from "@mariozechner/pi-tui";
+
+class CachedComponent implements Component {
+  private text: string;
+  private cachedWidth?: number;
+  private cachedLines?: string[];
+  
+  setText(text: string) {
+    this.text = text;
+    this.invalidate();
+  }
+  
+  render(width: number): string[] {
+    if (this.cachedLines && this.cachedWidth === width) {
+      return this.cachedLines;
+    }
+    
+    const lines = this.text.split("\n").map(line => truncateToWidth(line, width));
+    
+    this.cachedWidth = width;
+    this.cachedLines = lines;
+    return lines;
+  }
+  
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+}
+```
+
+## Utilities
+
+### Text Width and Truncation
+
+```typescript
+import { visibleWidth, truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+
+// Get visible width (ignoring ANSI codes)
+const width = visibleWidth("\x1b[31mHello\x1b[0m");  // 5
+
+// Truncate to width with ellipsis
+const truncated = truncateToWidth("Hello World", 8);  // "Hello..."
+
+// Truncate without ellipsis
+const exact = truncateToWidth("Hello World", 8, "");  // "Hello Wo"
+
+// Wrap text preserving ANSI codes
+const lines = wrapTextWithAnsi("This is a long line", 10);
+// ["This is a", "long line"]
+```
+
+### ANSI Code Handling
+
+Both `visibleWidth()` and `truncateToWidth()` correctly handle ANSI escape codes:
+
+```typescript
+import chalk from "chalk";
+
+const styled = chalk.red("Hello") + " " + chalk.blue("World");
+const width = visibleWidth(styled);  // 11 (ignores ANSI)
+const truncated = truncateToWidth(styled, 8);  // Properly closes ANSI codes
+```
+
+## Terminal Abstraction
+
+The TUI works with any object implementing the `Terminal` interface:
+
+```typescript
+interface Terminal {
+  start(onInput: (data: string) => void, onResize: () => void): void;
+  stop(): void;
+  write(data: string): void;
+  get columns(): number;
+  get rows(): number;
+  moveBy(lines: number): void;
+  hideCursor(): void;
+  showCursor(): void;
+  clearLine(): void;
+  clearFromCursor(): void;
+  clearScreen(): void;
+}
+```
+
+**Implementations:**
+- `ProcessTerminal` - Uses `process.stdin/stdout`
+- `VirtualTerminal` - For testing (uses `@xterm/headless`)
+
+## Example: Chat Interface
+
+See `test/chat-simple.ts` in the package for a complete example with:
+- Markdown messages with custom backgrounds
+- Loading spinner during responses
+- Editor with autocomplete and slash commands
+- Spacers between messages
+
+Run it:
+```bash
+npx tsx node_modules/@mariozechner/pi-tui/test/chat-simple.ts
+```
+
+## Debug Logging
+
+Capture raw ANSI output for debugging:
+
+```bash
+PI_TUI_WRITE_LOG=/tmp/tui-output.log node your-app.js
+```
+
+## Links
+
+- [GitHub Repository](https://github.com/badlogic/pi-mono/tree/main/packages/tui)
+- [npm Package](https://www.npmjs.com/package/@mariozechner/pi-tui)
+- [Component API Reference](/api/tui/components)
+- [Terminal API Reference](/api/tui/terminal)

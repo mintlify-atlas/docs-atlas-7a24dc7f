@@ -1,80 +1,306 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick Start"
+description: "Get Pi running in minutes and start building with AI assistance"
 ---
 
-## Get started in three steps
+## Install Pi
 
-Get your documentation site running locally and make your first customization.
+Pi is distributed as an npm package and requires Node.js 20 or later.
 
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+<Steps>
+  <Step title="Install Pi globally">
+    ```bash
+    npm install -g @mariozechner/pi-coding-agent
+    ```
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    This makes the `pi` command available system-wide.
+  </Step>
+
+  <Step title="Set up authentication">
+    Choose one of two authentication methods:
+
+    <Tabs>
+      <Tab title="API Key (Simple)">
+        Set an environment variable for your preferred provider:
+        
+        ```bash
+        export ANTHROPIC_API_KEY=sk-ant-...
+        ```
+        
+        <Tip>
+        Add this to your `~/.bashrc` or `~/.zshrc` to make it permanent.
+        </Tip>
+        
+        Supported providers:
+        - `ANTHROPIC_API_KEY` - Anthropic
+        - `OPENAI_API_KEY` - OpenAI
+        - `GEMINI_API_KEY` - Google Gemini
+        - `GROQ_API_KEY` - Groq
+        - `MISTRAL_API_KEY` - Mistral
+        - And [many more](/installation#api-key-providers)
+      </Tab>
+      
+      <Tab title="Subscription (OAuth)">
+        If you have a subscription to Claude Pro, ChatGPT Plus, or GitHub Copilot:
+        
+        ```bash
+        pi
+        /login
+        ```
+        
+        Then select your provider from the menu. Credentials are saved to `~/.pi/agent/auth.json` and auto-refresh.
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Launch Pi">
+    ```bash
+    pi
+    ```
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    You'll see the interactive terminal interface with an editor at the bottom.
+  </Step>
 
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+  <Step title="Start coding">
+    Type your request and press Enter:
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```
+    List all TypeScript files in this directory
+    ```
+    
+    Pi will use the built-in tools (`read`, `write`, `edit`, `bash`) to fulfill your request.
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Your First Session
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+Let's walk through a typical Pi session:
 
-### Step 3: Go live
+<CodeGroup>
+```bash Terminal
+# Start Pi in your project directory
+cd ~/my-project
+pi
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+# Pi loads and shows the interface
+# Type your first message:
+"Create a simple HTTP server in Node.js that responds with 'Hello World'"
 
-## Next steps
+# Pi will:
+# 1. Create a new file (server.js)
+# 2. Write the code
+# 3. Show you what it did
 
-Now that you have your docs running, explore these key features:
+# Continue the conversation:
+"Add a /status endpoint that returns JSON"
 
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+# Pi edits the existing file and shows the changes
+```
+</CodeGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+Sessions auto-save to `~/.pi/agent/sessions/` organized by working directory. Use `pi -c` to continue your most recent session.
 </Note>
+
+## Essential Commands
+
+Type `/` in the editor to see all commands. Here are the most useful:
+
+| Command | Description |
+|---------|-------------|
+| `/model` | Switch between LLM models |
+| `/settings` | Adjust thinking level, theme, and more |
+| `/tree` | Navigate session history and branches |
+| `/copy` | Copy last assistant message to clipboard |
+| `/hotkeys` | Show all keyboard shortcuts |
+| `/quit` | Exit Pi |
+
+## Essential Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+L` | Open model selector |
+| `Ctrl+P` / `Shift+Ctrl+P` | Cycle through models |
+| `Shift+Tab` | Cycle thinking level (off → minimal → low → medium → high → xhigh) |
+| `Escape` | Cancel current operation |
+| `Escape` twice | Open session tree view |
+| `Ctrl+C` | Clear editor (press twice to quit) |
+| `Ctrl+O` | Collapse/expand tool output |
+| `@` | Fuzzy-search and reference files |
+
+<Tip>
+Use `Shift+Enter` (or `Ctrl+Enter` on Windows Terminal) for multi-line input.
+</Tip>
+
+## File References
+
+Include files in your messages using the `@` symbol:
+
+```
+@src/server.ts Review this file for security issues
+```
+
+Type `@` and start typing to get fuzzy-search suggestions. You can reference multiple files:
+
+```
+@package.json @README.md Update the dependencies and document the changes
+```
+
+## Running Bash Commands
+
+Prefix commands with `!` to run them and send output to the LLM:
+
+```bash
+!ls -la src/
+```
+
+Use `!!` to run without sending output:
+
+```bash
+!!npm install lodash
+```
+
+## Session Management
+
+<AccordionGroup>
+  <Accordion title="Continue Previous Session" icon="play">
+    ```bash
+    pi -c
+    ```
+    Resumes the most recent session for the current directory.
+  </Accordion>
+
+  <Accordion title="Browse All Sessions" icon="list">
+    ```bash
+    pi -r
+    ```
+    Opens an interactive picker to select from past sessions.
+  </Accordion>
+
+  <Accordion title="Branch from History" icon="code-branch">
+    Inside Pi, press `Escape` twice to open the session tree. Navigate to any point in history, then:
+    - Press Enter to continue from that point
+    - Type `/fork` to create a new session file from that branch
+  </Accordion>
+
+  <Accordion title="Export or Share" icon="share">
+    ```
+    /export my-session.html
+    ```
+    Creates a standalone HTML file with your session.
+    
+    ```
+    /share
+    ```
+    Uploads your session as a private GitHub gist with a shareable HTML link.
+  </Accordion>
+</AccordionGroup>
+
+## Switching Models
+
+Pi supports 20+ LLM providers. Switch models at any time:
+
+<Steps>
+  <Step title="Open model selector">
+    Press `Ctrl+L` or type `/model`
+  </Step>
+
+  <Step title="Choose your model">
+    Use arrow keys and search to find your model. The list shows:
+    - Model name and provider
+    - Context window size
+    - Pricing (input/output tokens)
+    - Whether it supports vision and reasoning
+  </Step>
+
+  <Step title="Continue conversation">
+    Your session continues with the new model. Pi handles cross-provider compatibility automatically.
+  </Step>
+</Steps>
+
+<Note>
+Use `pi --models "claude-*,gpt-4o"` to limit `Ctrl+P` cycling to specific model patterns.
+</Note>
+
+## Next Steps
+
+Now that you have Pi running, explore these key areas:
+
+<CardGroup cols={2}>
+  <Card title="Installation Details" icon="download" href="/installation">
+    Platform-specific setup, API keys, and advanced configuration
+  </Card>
+  
+  <Card title="Interactive Mode" icon="terminal" href="/guides/interactive-mode">
+    Master the terminal UI, editor features, and message queue
+  </Card>
+  
+  <Card title="Providers & Models" icon="cloud" href="/guides/providers-and-models">
+    Set up multiple providers and understand model selection
+  </Card>
+  
+  <Card title="Customization" icon="puzzle-piece" href="/guides/customization">
+    Extend Pi with skills, extensions, and prompt templates
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Pi command not found" icon="triangle-exclamation">
+    After installing globally, you may need to restart your terminal or reload your shell:
+    
+    ```bash
+    source ~/.bashrc  # or ~/.zshrc
+    ```
+    
+    If that doesn't work, check your npm global bin directory is in PATH:
+    ```bash
+    npm config get prefix
+    # Should output a path like /usr/local or ~/.npm-global
+    ```
+  </Accordion>
+
+  <Accordion title="Authentication errors" icon="key">
+    If you see authentication errors:
+    
+    1. Verify your API key is set correctly:
+       ```bash
+       echo $ANTHROPIC_API_KEY
+       ```
+    
+    2. Check the key format matches your provider's requirements
+    
+    3. For OAuth providers, try logging out and back in:
+       ```bash
+       pi
+       /logout
+       /login
+       ```
+  </Accordion>
+
+  <Accordion title="Windows: bash not found" icon="windows">
+    Pi requires bash on Windows. Install [Git for Windows](https://git-scm.com/download/win) which includes Git Bash.
+    
+    See the [Windows setup guide](/installation#windows) for details.
+  </Accordion>
+
+  <Accordion title="Node.js version errors" icon="node">
+    Pi requires Node.js 20 or later. Check your version:
+    
+    ```bash
+    node --version
+    ```
+    
+    If needed, install a newer version from [nodejs.org](https://nodejs.org/) or use [nvm](https://github.com/nvm-sh/nvm):
+    
+    ```bash
+    nvm install 20
+    nvm use 20
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+For more help, join the [Discord community](https://discord.com/invite/3cU7Bz4UPx) or check the [GitHub issues](https://github.com/badlogic/pi-mono/issues).
+</Tip>

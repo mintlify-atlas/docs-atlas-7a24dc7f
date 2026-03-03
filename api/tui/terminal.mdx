@@ -1,0 +1,259 @@
+---
+title: Terminal
+description: Terminal interface for TUI rendering and screen management
+---
+
+# Terminal
+
+The Terminal interface provides low-level access to terminal operations including rendering, cursor control, and screen management.
+
+## Terminal Interface
+
+Minimal terminal interface for TUI with input handling and screen control.
+
+```typescript
+interface Terminal {
+  // Lifecycle
+  start(onInput: (data: string) => void, onResize: () => void): void;
+  stop(): void;
+  drainInput(maxMs?: number, idleMs?: number): Promise<void>;
+
+  // Output
+  write(data: string): void;
+
+  // Dimensions
+  get columns(): number;
+  get rows(): number;
+
+  // Keyboard protocol
+  get kittyProtocolActive(): boolean;
+
+  // Cursor control
+  moveBy(lines: number): void;
+  hideCursor(): void;
+  showCursor(): void;
+
+  // Clear operations
+  clearLine(): void;
+  clearFromCursor(): void;
+  clearScreen(): void;
+
+  // Title
+  setTitle(title: string): void;
+}
+```
+
+## ProcessTerminal Class
+
+Real terminal implementation using `process.stdin`/`process.stdout`.
+
+```typescript
+class ProcessTerminal implements Terminal
+```
+
+### Constructor
+
+Creates a new ProcessTerminal instance.
+
+```typescript
+const terminal = new ProcessTerminal();
+```
+
+### Methods
+
+#### start()
+
+Starts the terminal with input and resize handlers.
+
+<ParamField path="onInput" type="(data: string) => void" required>
+  Callback invoked when input data is received
+</ParamField>
+
+<ParamField path="onResize" type="() => void" required>
+  Callback invoked when terminal is resized
+</ParamField>
+
+```typescript
+terminal.start(
+  (data) => console.log('Input:', data),
+  () => console.log('Resized to', terminal.columns, 'x', terminal.rows)
+);
+```
+
+#### stop()
+
+Stops the terminal and restores previous state.
+
+```typescript
+terminal.stop();
+```
+
+#### drainInput()
+
+Drains stdin before exiting to prevent Kitty key release events from leaking to the parent shell over slow SSH connections.
+
+<ParamField path="maxMs" type="number" default="1000">
+  Maximum time to drain in milliseconds
+</ParamField>
+
+<ParamField path="idleMs" type="number" default="50">
+  Exit early if no input arrives within this time in milliseconds
+</ParamField>
+
+```typescript
+await terminal.drainInput(1000, 50);
+```
+
+#### write()
+
+Writes output to the terminal.
+
+<ParamField path="data" type="string" required>
+  Data to write to terminal
+</ParamField>
+
+```typescript
+terminal.write('\x1b[32mGreen text\x1b[0m\n');
+```
+
+#### moveBy()
+
+Moves cursor up or down by N lines relative to current position.
+
+<ParamField path="lines" type="number" required>
+  Number of lines to move. Positive moves down, negative moves up.
+</ParamField>
+
+```typescript
+terminal.moveBy(-3);  // Move up 3 lines
+terminal.moveBy(5);   // Move down 5 lines
+```
+
+#### hideCursor() / showCursor()
+
+Controls cursor visibility.
+
+```typescript
+terminal.hideCursor();
+// ... render content ...
+terminal.showCursor();
+```
+
+#### clearLine()
+
+Clears the current line.
+
+```typescript
+terminal.clearLine();
+```
+
+#### clearFromCursor()
+
+Clears from cursor to end of screen.
+
+```typescript
+terminal.clearFromCursor();
+```
+
+#### clearScreen()
+
+Clears entire screen and moves cursor to (0,0).
+
+```typescript
+terminal.clearScreen();
+```
+
+#### setTitle()
+
+Sets terminal window title.
+
+<ParamField path="title" type="string" required>
+  Window title text
+</ParamField>
+
+```typescript
+terminal.setTitle('My Application');
+```
+
+### Properties
+
+#### columns
+
+Current terminal width in columns.
+
+```typescript
+const width = terminal.columns; // e.g., 80
+```
+
+#### rows
+
+Current terminal height in rows.
+
+```typescript
+const height = terminal.rows; // e.g., 24
+```
+
+#### kittyProtocolActive
+
+Whether Kitty keyboard protocol is active.
+
+```typescript
+if (terminal.kittyProtocolActive) {
+  // Enhanced keyboard protocol available
+}
+```
+
+## Features
+
+### Kitty Keyboard Protocol
+
+The terminal automatically queries and enables the Kitty keyboard protocol when available, providing:
+
+- Disambiguated escape codes
+- Key press/repeat/release events
+- Alternate keys (shifted key, base layout key)
+- Support for non-Latin keyboard layouts
+
+### Bracketed Paste Mode
+
+Bracketed paste mode is automatically enabled, wrapping pastes in `\x1b[200~` ... `\x1b[201~` sequences.
+
+### Windows VT Input Support
+
+On Windows, automatically enables `ENABLE_VIRTUAL_TERMINAL_INPUT` so the terminal sends VT sequences for modified keys (e.g., `\x1b[Z` for Shift+Tab).
+
+## Example Usage
+
+```typescript
+import { ProcessTerminal } from '@pi-ai/tui';
+
+const terminal = new ProcessTerminal();
+
+terminal.start(
+  (data) => {
+    // Handle input
+    if (data === '\x03') { // Ctrl+C
+      terminal.stop();
+      process.exit(0);
+    }
+    terminal.write(`You typed: ${data}\r\n`);
+  },
+  () => {
+    // Handle resize
+    terminal.write(`Resized to ${terminal.columns}x${terminal.rows}\r\n`);
+  }
+);
+
+terminal.setTitle('My Terminal App');
+terminal.write('Welcome! Press Ctrl+C to exit.\r\n');
+```
+
+## Environment Variables
+
+<ParamField path="PI_TUI_WRITE_LOG" type="string">
+  Path to log all terminal writes (for debugging)
+</ParamField>
+
+```bash
+PI_TUI_WRITE_LOG=/tmp/tui-writes.log node app.js
+```

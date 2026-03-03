@@ -1,0 +1,442 @@
+---
+title: 'OAuth'
+description: 'OAuth providers, login flow, and token management'
+---
+
+## Overview
+
+Several providers require OAuth authentication instead of static API keys:
+
+- **Anthropic** - Claude Pro/Max subscription
+- **OpenAI Codex** - ChatGPT Plus/Pro subscription (access to GPT-5.x Codex models)
+- **GitHub Copilot** - Copilot subscription
+- **Google Gemini CLI** - Gemini 2.0/2.5 via Google Cloud Code Assist (free tier or paid)
+- **Antigravity** - Free Gemini 3, Claude, GPT-OSS via Google Cloud
+
+## OAuth Providers
+
+The toolkit includes built-in OAuth support for these providers.
+
+### getOAuthProvider()
+
+Get an OAuth provider by ID:
+
+```typescript
+function getOAuthProvider(
+  id: OAuthProviderId
+): OAuthProviderInterface | undefined
+```
+
+<ParamField path="id" type="OAuthProviderId" required>
+  Provider identifier: `'anthropic'`, `'openai-codex'`, `'github-copilot'`, `'google-gemini-cli'`, or `'google-antigravity'`.
+</ParamField>
+
+### getOAuthProviders()
+
+Get all registered OAuth providers:
+
+```typescript
+function getOAuthProviders(): OAuthProviderInterface[]
+```
+
+### registerOAuthProvider()
+
+Register a custom OAuth provider:
+
+```typescript
+function registerOAuthProvider(
+  provider: OAuthProviderInterface
+): void
+```
+
+## OAuthProviderInterface
+
+Interface for OAuth provider implementations:
+
+```typescript
+interface OAuthProviderInterface {
+  readonly id: OAuthProviderId;
+  readonly name: string;
+  
+  login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials>;
+  usesCallbackServer?: boolean;
+  refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials>;
+  getApiKey(credentials: OAuthCredentials): string;
+  modifyModels?(models: Model<Api>[], credentials: OAuthCredentials): Model<Api>[];
+}
+```
+
+<ParamField path="id" type="string">
+  Unique provider identifier.
+</ParamField>
+
+<ParamField path="name" type="string">
+  Human-readable provider name.
+</ParamField>
+
+<ParamField path="login" type="function">
+  Initiate login flow and return credentials to persist.
+</ParamField>
+
+<ParamField path="usesCallbackServer" type="boolean">
+  Whether login uses a local callback server and supports manual code input.
+</ParamField>
+
+<ParamField path="refreshToken" type="function">
+  Refresh expired credentials and return updated credentials to persist.
+</ParamField>
+
+<ParamField path="getApiKey" type="function">
+  Convert credentials to API key string for the provider.
+</ParamField>
+
+<ParamField path="modifyModels" type="function">
+  Optional: Modify models for this provider (e.g., update baseUrl).
+</ParamField>
+
+## Login Flow
+
+Each provider has a dedicated login function.
+
+### loginAnthropic()
+
+```typescript
+function loginAnthropic(
+  callbacks: OAuthLoginCallbacks
+): Promise<OAuthCredentials>
+```
+
+### loginOpenAICodex()
+
+```typescript
+function loginOpenAICodex(
+  callbacks: OAuthLoginCallbacks
+): Promise<OAuthCredentials>
+```
+
+### loginGitHubCopilot()
+
+```typescript
+function loginGitHubCopilot(
+  callbacks: OAuthLoginCallbacks
+): Promise<OAuthCredentials>
+```
+
+### loginGeminiCli()
+
+```typescript
+function loginGeminiCli(
+  callbacks: OAuthLoginCallbacks
+): Promise<OAuthCredentials>
+```
+
+### loginAntigravity()
+
+```typescript
+function loginAntigravity(
+  callbacks: OAuthLoginCallbacks
+): Promise<OAuthCredentials>
+```
+
+## OAuthLoginCallbacks
+
+Callbacks for handling the login flow:
+
+```typescript
+interface OAuthLoginCallbacks {
+  onAuth: (info: OAuthAuthInfo) => void;
+  onPrompt: (prompt: OAuthPrompt) => Promise<string>;
+  onProgress?: (message: string) => void;
+  onManualCodeInput?: () => Promise<string>;
+  signal?: AbortSignal;
+}
+```
+
+<ParamField path="onAuth" type="(info: OAuthAuthInfo) => void" required>
+  Called when authentication URL is ready. Display URL and instructions to user.
+  
+  ```typescript
+  interface OAuthAuthInfo {
+    url: string;
+    instructions?: string;
+  }
+  ```
+</ParamField>
+
+<ParamField path="onPrompt" type="(prompt: OAuthPrompt) => Promise<string>" required>
+  Called when user input is needed. Return the user's response.
+  
+  ```typescript
+  interface OAuthPrompt {
+    message: string;
+    placeholder?: string;
+    allowEmpty?: boolean;
+  }
+  ```
+</ParamField>
+
+<ParamField path="onProgress" type="(message: string) => void">
+  Optional progress updates during login.
+</ParamField>
+
+<ParamField path="onManualCodeInput" type="() => Promise<string>">
+  Optional callback for manual authorization code input (when callback server fails).
+</ParamField>
+
+<ParamField path="signal" type="AbortSignal">
+  Optional abort signal to cancel login.
+</ParamField>
+
+## Login Example
+
+```typescript
+import { loginGitHubCopilot, type OAuthCredentials } from '@mariozechner/pi-ai';
+import { writeFileSync } from 'fs';
+import * as readline from 'readline/promises';
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+const credentials: OAuthCredentials = await loginGitHubCopilot({
+  onAuth: (info) => {
+    console.log(`\nOpen this URL: ${info.url}`);
+    if (info.instructions) {
+      console.log(info.instructions);
+    }
+  },
+  
+  onPrompt: async (prompt) => {
+    const answer = await rl.question(`${prompt.message} `);
+    return answer;
+  },
+  
+  onProgress: (message) => {
+    console.log(`[Progress] ${message}`);
+  },
+  
+  onManualCodeInput: async () => {
+    return await rl.question('Enter authorization code: ');
+  }
+});
+
+rl.close();
+
+// Store credentials (your responsibility)
+const auth = {
+  'github-copilot': {
+    type: 'oauth',
+    ...credentials
+  }
+};
+
+writeFileSync('auth.json', JSON.stringify(auth, null, 2));
+console.log('Saved credentials to auth.json');
+```
+
+## Token Management
+
+### OAuthCredentials
+
+Credentials returned by login and refresh functions:
+
+```typescript
+type OAuthCredentials = {
+  refresh: string;
+  access: string;
+  expires: number;  // Unix timestamp in milliseconds
+  [key: string]: unknown;  // Provider-specific fields
+}
+```
+
+### getOAuthApiKey()
+
+Get API key from credentials, automatically refreshing if expired:
+
+```typescript
+function getOAuthApiKey(
+  providerId: OAuthProviderId,
+  credentials: Record<string, OAuthCredentials>
+): Promise<{ newCredentials: OAuthCredentials; apiKey: string } | null>
+```
+
+<ParamField path="providerId" type="OAuthProviderId" required>
+  The OAuth provider ID.
+</ParamField>
+
+<ParamField path="credentials" type="Record<string, OAuthCredentials>" required>
+  Map of provider IDs to credentials.
+</ParamField>
+
+<ResponseField name="result" type="{ newCredentials: OAuthCredentials; apiKey: string } | null">
+  Returns updated credentials and API key, or `null` if no credentials found.
+</ResponseField>
+
+**Throws** `Error` if refresh fails.
+
+### Example
+
+```typescript
+import { getModel, complete, getOAuthApiKey } from '@mariozechner/pi-ai';
+import { readFileSync, writeFileSync } from 'fs';
+
+// Load stored credentials
+const auth = JSON.parse(readFileSync('auth.json', 'utf-8'));
+
+// Get API key (refreshes if expired)
+const result = await getOAuthApiKey('github-copilot', auth);
+
+if (!result) {
+  throw new Error('Not logged in to GitHub Copilot');
+}
+
+// Save potentially refreshed credentials
+auth['github-copilot'] = { type: 'oauth', ...result.newCredentials };
+writeFileSync('auth.json', JSON.stringify(auth, null, 2));
+
+// Use the API key
+const model = getModel('github-copilot', 'gpt-4o');
+const response = await complete(model, {
+  messages: [{ role: 'user', content: 'Hello!' }]
+}, {
+  apiKey: result.apiKey
+});
+
+console.log(response.content);
+```
+
+### refreshOAuthToken()
+
+Manually refresh a token:
+
+```typescript
+function refreshOAuthToken(
+  providerId: OAuthProviderId,
+  credentials: OAuthCredentials
+): Promise<OAuthCredentials>
+```
+
+<Warning>
+  **Deprecated**: Use `getOAuthProvider(id).refreshToken()` instead.
+</Warning>
+
+## Provider-Specific Functions
+
+### GitHub Copilot
+
+#### getGitHubCopilotBaseUrl()
+
+Get the base URL for GitHub Copilot API:
+
+```typescript
+function getGitHubCopilotBaseUrl(
+  token?: string,
+  enterpriseDomain?: string
+): string
+```
+
+Extracts base URL from token's `proxy-ep` field, or constructs from enterprise domain.
+
+#### normalizeDomain()
+
+Normalize domain input for enterprise GitHub:
+
+```typescript
+function normalizeDomain(input: string): string | null
+```
+
+Accepts URLs or bare domains, returns normalized hostname.
+
+### Google Cloud
+
+#### refreshGoogleCloudToken()
+
+Refresh Google Cloud OAuth tokens (Gemini CLI and Antigravity):
+
+```typescript
+function refreshGoogleCloudToken(
+  credentials: OAuthCredentials
+): Promise<OAuthCredentials>
+```
+
+## CLI Tool
+
+The quickest way to authenticate is via the CLI:
+
+```bash
+# Interactive provider selection
+npx @mariozechner/pi-ai login
+
+# Login to specific provider
+npx @mariozechner/pi-ai login anthropic
+npx @mariozechner/pi-ai login github-copilot
+npx @mariozechner/pi-ai login google-gemini-cli
+
+# List available providers
+npx @mariozechner/pi-ai list
+```
+
+Credentials are saved to `auth.json` in the current directory.
+
+## Environment Variables
+
+Some providers support environment variable auth as an alternative to OAuth:
+
+| Provider | Environment Variable |
+|----------|---------------------|
+| Anthropic | `ANTHROPIC_OAUTH_TOKEN` (OAuth token from login) |
+| GitHub Copilot | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` |
+| Google Gemini CLI | OAuth only (no env var support) |
+| Antigravity | OAuth only (no env var support) |
+| OpenAI Codex | OAuth only (no env var support) |
+
+## Provider Notes
+
+### OpenAI Codex
+
+Requires ChatGPT Plus or Pro subscription. Provides access to GPT-5.x Codex models with extended context windows and reasoning.
+
+The library automatically handles session-based prompt caching when `sessionId` is provided in stream options.
+
+Set `transport` option to `"sse"`, `"websocket"`, or `"auto"` for transport selection. WebSocket connections with `sessionId` are reused per session and expire after 5 minutes of inactivity.
+
+### Azure OpenAI
+
+Azure OpenAI uses API key auth, not OAuth. Set `AZURE_OPENAI_API_KEY` and either `AZURE_OPENAI_BASE_URL` or `AZURE_OPENAI_RESOURCE_NAME`.
+
+Use `AZURE_OPENAI_API_VERSION` to override API version (defaults to `v1`).
+
+Deployment names are treated as model IDs by default. Override with `azureDeploymentName` option or `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` using comma-separated pairs like `gpt-4o-mini=my-deployment,gpt-4o=prod`.
+
+### GitHub Copilot
+
+If you get "The requested model is not supported" error:
+
+1. Open VS Code
+2. Open Copilot Chat
+3. Click the model selector
+4. Select the model (it will show a warning icon)
+5. Click "Enable"
+
+### Google Gemini CLI / Antigravity
+
+These use Google Cloud OAuth. The `apiKey` returned by `getOAuthApiKey()` is a JSON string containing both the token and project ID.
+
+For paid Cloud Code Assist subscriptions, set `GOOGLE_CLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT_ID` to your project ID.
+
+### Vertex AI (ADC)
+
+Vertex AI uses Application Default Credentials (ADC), not OAuth:
+
+```bash
+# Local development
+gcloud auth application-default login
+export GOOGLE_CLOUD_PROJECT="my-project"
+export GOOGLE_CLOUD_LOCATION="us-central1"
+
+# CI/Production (service account)
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+```
+
+See [Vertex AI documentation](https://cloud.google.com/docs/authentication/application-default-credentials) for details.

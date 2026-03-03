@@ -1,0 +1,390 @@
+---
+title: Keybindings
+description: Keybinding system and keyboard input handling
+---
+
+# Keybindings
+
+The Pi-TUI keybinding system provides configurable keyboard shortcuts for editor actions with support for multi-key bindings.
+
+## Editor Actions
+
+Editor actions that can be bound to keys:
+
+```typescript
+type EditorAction =
+  // Cursor movement
+  | 'cursorUp'
+  | 'cursorDown'
+  | 'cursorLeft'
+  | 'cursorRight'
+  | 'cursorWordLeft'
+  | 'cursorWordRight'
+  | 'cursorLineStart'
+  | 'cursorLineEnd'
+  | 'jumpForward'
+  | 'jumpBackward'
+  | 'pageUp'
+  | 'pageDown'
+  // Deletion
+  | 'deleteCharBackward'
+  | 'deleteCharForward'
+  | 'deleteWordBackward'
+  | 'deleteWordForward'
+  | 'deleteToLineStart'
+  | 'deleteToLineEnd'
+  // Text input
+  | 'newLine'
+  | 'submit'
+  | 'tab'
+  // Selection/autocomplete
+  | 'selectUp'
+  | 'selectDown'
+  | 'selectPageUp'
+  | 'selectPageDown'
+  | 'selectConfirm'
+  | 'selectCancel'
+  // Clipboard
+  | 'copy'
+  // Kill ring
+  | 'yank'
+  | 'yankPop'
+  // Undo
+  | 'undo'
+  // Tool output
+  | 'expandTools'
+  // Session
+  | 'toggleSessionPath'
+  | 'toggleSessionSort'
+  | 'renameSession'
+  | 'deleteSession'
+  | 'deleteSessionNoninvasive';
+```
+
+## KeyId Type
+
+Key identifiers support modifiers and special keys:
+
+```typescript
+type KeyId = string;  // e.g., 'enter', 'ctrl+c', 'alt+left', 'shift+enter'
+```
+
+### Supported Modifiers
+
+- `ctrl+` - Control key
+- `alt+` - Alt/Option key
+- `shift+` - Shift key
+- Combine multiple: `ctrl+alt+x`, `shift+ctrl+z`
+
+### Special Keys
+
+- `enter`, `escape`, `tab`, `backspace`, `delete`
+- `up`, `down`, `left`, `right`
+- `home`, `end`, `pageUp`, `pageDown`
+- `f1` through `f12`
+
+## EditorKeybindingsManager
+
+Manages keybindings for editor actions.
+
+```typescript
+class EditorKeybindingsManager {
+  constructor(config?: EditorKeybindingsConfig);
+  
+  matches(data: string, action: EditorAction): boolean;
+  getKeys(action: EditorAction): KeyId[];
+  setConfig(config: EditorKeybindingsConfig): void;
+}
+```
+
+### Constructor
+
+Creates a new keybindings manager with optional configuration.
+
+<ParamField path="config" type="EditorKeybindingsConfig">
+  Optional keybinding overrides. Unspecified actions use defaults.
+</ParamField>
+
+```typescript
+import { EditorKeybindingsManager } from '@pi-ai/tui';
+
+const kb = new EditorKeybindingsManager({
+  submit: 'ctrl+enter',  // Override default (enter)
+  deleteWordBackward: ['ctrl+w', 'alt+backspace'],  // Multiple bindings
+});
+```
+
+### Methods
+
+#### matches()
+
+Checks if input data matches a specific action.
+
+<ParamField path="data" type="string" required>
+  Raw input data from terminal
+</ParamField>
+
+<ParamField path="action" type="EditorAction" required>
+  Action to check against
+</ParamField>
+
+<ParamField returns="boolean">
+  True if input matches any keybinding for the action
+</ParamField>
+
+```typescript
+handleInput(data: string) {
+  if (kb.matches(data, 'submit')) {
+    // Handle submit
+  } else if (kb.matches(data, 'selectCancel')) {
+    // Handle cancel
+  }
+}
+```
+
+#### getKeys()
+
+Gets all keys bound to an action.
+
+<ParamField path="action" type="EditorAction" required>
+  Action to query
+</ParamField>
+
+<ParamField returns="KeyId[]">
+  Array of key identifiers bound to the action
+</ParamField>
+
+```typescript
+const submitKeys = kb.getKeys('submit');
+// => ['enter']
+
+const deleteKeys = kb.getKeys('deleteWordBackward');
+// => ['ctrl+w', 'alt+backspace']
+```
+
+#### setConfig()
+
+Updates keybinding configuration.
+
+<ParamField path="config" type="EditorKeybindingsConfig" required>
+  New configuration. Merges with defaults.
+</ParamField>
+
+```typescript
+kb.setConfig({
+  submit: 'ctrl+s',
+  newLine: 'enter',
+});
+```
+
+## Configuration
+
+### EditorKeybindingsConfig
+
+Configuration object mapping actions to key identifiers.
+
+```typescript
+type EditorKeybindingsConfig = {
+  [K in EditorAction]?: KeyId | KeyId[];
+};
+```
+
+Actions can bind to:
+- Single key: `{ submit: 'enter' }`
+- Multiple keys: `{ submit: ['enter', 'ctrl+s'] }`
+
+### Default Keybindings
+
+```typescript
+const DEFAULT_EDITOR_KEYBINDINGS = {
+  // Cursor movement
+  cursorUp: 'up',
+  cursorDown: 'down',
+  cursorLeft: ['left', 'ctrl+b'],
+  cursorRight: ['right', 'ctrl+f'],
+  cursorWordLeft: ['alt+left', 'ctrl+left', 'alt+b'],
+  cursorWordRight: ['alt+right', 'ctrl+right', 'alt+f'],
+  cursorLineStart: ['home', 'ctrl+a'],
+  cursorLineEnd: ['end', 'ctrl+e'],
+  jumpForward: 'ctrl+]',
+  jumpBackward: 'ctrl+alt+]',
+  pageUp: 'pageUp',
+  pageDown: 'pageDown',
+  
+  // Deletion
+  deleteCharBackward: 'backspace',
+  deleteCharForward: ['delete', 'ctrl+d'],
+  deleteWordBackward: ['ctrl+w', 'alt+backspace'],
+  deleteWordForward: ['alt+d', 'alt+delete'],
+  deleteToLineStart: 'ctrl+u',
+  deleteToLineEnd: 'ctrl+k',
+  
+  // Text input
+  newLine: 'shift+enter',
+  submit: 'enter',
+  tab: 'tab',
+  
+  // Selection/autocomplete
+  selectUp: 'up',
+  selectDown: 'down',
+  selectPageUp: 'pageUp',
+  selectPageDown: 'pageDown',
+  selectConfirm: 'enter',
+  selectCancel: ['escape', 'ctrl+c'],
+  
+  // Clipboard
+  copy: 'ctrl+c',
+  
+  // Kill ring
+  yank: 'ctrl+y',
+  yankPop: 'alt+y',
+  
+  // Undo
+  undo: 'ctrl+-',
+  
+  // Tool output
+  expandTools: 'ctrl+o',
+  
+  // Session
+  toggleSessionPath: 'ctrl+p',
+  toggleSessionSort: 'ctrl+s',
+  renameSession: 'ctrl+r',
+  deleteSession: 'ctrl+d',
+  deleteSessionNoninvasive: 'ctrl+backspace',
+};
+```
+
+## Global Instance
+
+Convenience functions for a global keybindings instance:
+
+```typescript
+function getEditorKeybindings(): EditorKeybindingsManager
+function setEditorKeybindings(manager: EditorKeybindingsManager): void
+```
+
+### Example
+
+```typescript
+import { getEditorKeybindings, setEditorKeybindings, EditorKeybindingsManager } from '@pi-ai/tui';
+
+// Get global instance (creates with defaults if not set)
+const kb = getEditorKeybindings();
+
+// Replace global instance
+const custom = new EditorKeybindingsManager({
+  submit: 'ctrl+enter',
+});
+setEditorKeybindings(custom);
+```
+
+## Key Matching
+
+Low-level key matching functions:
+
+```typescript
+function matchesKey(data: string, keyId: KeyId): boolean
+function isKeyRelease(data: string): boolean
+```
+
+### matchesKey()
+
+Checks if raw input data matches a key identifier.
+
+<ParamField path="data" type="string" required>
+  Raw input data from terminal
+</ParamField>
+
+<ParamField path="keyId" type="KeyId" required>
+  Key identifier to match
+</ParamField>
+
+```typescript
+import { matchesKey } from '@pi-ai/tui';
+
+if (matchesKey(data, 'ctrl+c')) {
+  // Handle Ctrl+C
+}
+
+if (matchesKey(data, 'escape')) {
+  // Handle Escape
+}
+```
+
+### isKeyRelease()
+
+Checks if input data is a key release event (Kitty protocol).
+
+<ParamField path="data" type="string" required>
+  Raw input data from terminal
+</ParamField>
+
+```typescript
+import { isKeyRelease } from '@pi-ai/tui';
+
+if (isKeyRelease(data)) {
+  // Handle key release (if component.wantsKeyRelease is true)
+}
+```
+
+## Usage in Components
+
+Use the keybindings manager in component input handlers:
+
+```typescript
+import { Component } from '@pi-ai/tui';
+import { getEditorKeybindings } from '@pi-ai/tui';
+
+class MyComponent implements Component {
+  handleInput(data: string): void {
+    const kb = getEditorKeybindings();
+    
+    if (kb.matches(data, 'submit')) {
+      this.submit();
+    } else if (kb.matches(data, 'selectCancel')) {
+      this.cancel();
+    } else if (kb.matches(data, 'cursorUp')) {
+      this.moveCursorUp();
+    } else if (kb.matches(data, 'deleteWordBackward')) {
+      this.deleteWord();
+    }
+  }
+  
+  render(width: number): string[] {
+    return ['Content'];
+  }
+  
+  invalidate(): void {}
+}
+```
+
+## Custom Keybinding Schemes
+
+Create custom keybinding schemes for different workflows:
+
+```typescript
+import { EditorKeybindingsManager } from '@pi-ai/tui';
+
+// Vim-like bindings
+const vimBindings = new EditorKeybindingsManager({
+  cursorLeft: 'h',
+  cursorDown: 'j',
+  cursorUp: 'k',
+  cursorRight: 'l',
+  cursorWordLeft: 'b',
+  cursorWordRight: 'w',
+  cursorLineStart: '0',
+  cursorLineEnd: '$',
+  deleteCharBackward: 'x',
+  deleteWordBackward: 'd+b',
+});
+
+// Windows-style bindings
+const windowsBindings = new EditorKeybindingsManager({
+  copy: 'ctrl+c',
+  submit: 'ctrl+enter',
+  undo: 'ctrl+z',
+  deleteWordBackward: 'ctrl+backspace',
+  deleteWordForward: 'ctrl+delete',
+});
+```

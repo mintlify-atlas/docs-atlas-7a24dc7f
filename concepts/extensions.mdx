@@ -1,0 +1,593 @@
+---
+title: "Extension System"
+description: "Build custom extensions with hooks, tools, and commands"
+---
+
+## Overview
+
+Pi's extension system allows you to customize and extend the agent's behavior through event hooks, custom tools, commands, and UI components. Extensions are TypeScript modules that run in the same process as the agent.
+
+## Creating an Extension
+
+### Basic Structure
+
+Extensions export a factory function that receives the Pi API:
+
+```typescript
+// ~/.pi/agent/extensions/my-extension.ts
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+
+export default function (pi: ExtensionAPI) {
+  // Extension initialization code here
+  
+  pi.on("session_start", async (event, ctx) => {
+    console.log("Session started");
+  });
+}
+```
+
+### Extension API
+
+The `pi` object provides the full extension API:
+
+```typescript
+interface ExtensionAPI {
+  // Event subscription
+  on(event: string, handler: ExtensionHandler): void;
+  
+  // Tool registration
+  registerTool(tool: ToolDefinition): void;
+  
+  // Command registration
+  registerCommand(name: string, options: RegisteredCommand): void;
+  
+  // UI and messaging
+  sendMessage(message: CustomMessage, options?: MessageOptions): void;
+  sendUserMessage(content: string | Content[], options?: MessageOptions): void;
+  
+  // State management
+  appendEntry(customType: string, data?: unknown): void;
+  setSessionName(name: string): void;
+  getSessionName(): string | undefined;
+  setLabel(entryId: string, label: string | undefined): void;
+  
+  // Model and tools
+  setModel(model: Model): Promise<boolean>;
+  getThinkingLevel(): ThinkingLevel;
+  setThinkingLevel(level: ThinkingLevel): void;
+  getActiveTools(): string[];
+  getAllTools(): ToolInfo[];
+  setActiveTools(toolNames: string[]): void;
+  
+  // Provider registration
+  registerProvider(name: string, config: ProviderConfig): void;
+  
+  // Shared event bus
+  events: EventBus;
+}
+```
+
+**Location:** `packages/coding-agent/src/core/extensions/types.ts:916`
+
+## Event Hooks
+
+### Session Lifecycle
+
+```typescript
+pi.on("session_start", async (event, ctx) => {
+  // Called when session loads
+  // Use to restore extension state from session entries
+});
+
+pi.on("session_before_switch", async (event, ctx) => {
+  // Can cancel session switches
+  if (shouldBlock) {
+    return { cancel: true };
+  }
+});
+
+pi.on("session_switch", async (event, ctx) => {
+  // Called after switching sessions
+  console.log("Switched from:", event.previousSessionFile);
+});
+
+pi.on("session_shutdown", async (event, ctx) => {
+  // Cleanup on exit
+});
+```
+
+### Agent Lifecycle
+
+```typescript
+pi.on("before_agent_start", async (event, ctx) => {
+  // Inject context before LLM call
+  return {
+    message: {
+      customType: "context",
+      content: "Additional context for the LLM",
+      display: true,
+    },
+    systemPrompt: modifiedSystemPrompt,  // Optional
+  };
+});
+
+pi.on("agent_start", async (event, ctx) => {
+  // Agent loop started
+});
+
+pi.on("turn_start", async (event, ctx) => {
+  // New LLM call started
+  console.log("Turn index:", event.turnIndex);
+});
+
+pi.on("turn_end", async (event, ctx) => {
+  // LLM call completed
+  console.log("Message:", event.message);
+  console.log("Tool results:", event.toolResults);
+});
+
+pi.on("agent_end", async (event, ctx) => {
+  // Agent loop finished
+});
+```
+
+### Message Events
+
+```typescript
+pi.on("message_start", async (event, ctx) => {
+  // Message started (user, assistant, or toolResult)
+});
+
+pi.on("message_update", async (event, ctx) => {
+  // Token streamed (assistant messages only)
+  if (event.assistantMessageEvent.type === "text") {
+    process.stdout.write(event.assistantMessageEvent.text);
+  }
+});
+
+pi.on("message_end", async (event, ctx) => {
+  // Message completed
+});
+```
+
+### Tool Events
+
+```typescript
+pi.on("tool_call", async (event, ctx) => {
+  // Block dangerous commands
+  if (event.toolName === "bash" && event.input.command.includes("rm -rf /")) {
+    return {
+      block: true,
+      reason: "Dangerous command blocked",
+    };
+  }
+});
+
+pi.on("tool_result", async (event, ctx) => {
+  // Modify or redact tool results
+  if (event.toolName === "read" && event.details?.filePath.endsWith(".env")) {
+    return {
+      content: [{ type: "text", text: "[REDACTED]" }],
+    };
+  }
+});
+
+pi.on("tool_execution_start", async (event, ctx) => {
+  console.log(`Tool ${event.toolName} started`);
+});
+
+pi.on("tool_execution_end", async (event, ctx) => {
+  console.log(`Tool ${event.toolName} completed`);
+});
+```
+
+### Context Manipulation
+
+```typescript
+pi.on("context", async (event, ctx) => {
+  // Modify messages before sending to LLM
+  const messages = event.messages.filter(m => {
+    // Remove sensitive messages
+    return m.role !== "custom" || !m.content.includes("SECRET");
+  });
+  
+  return { messages };
+});
+```
+
+### Input Interception
+
+```typescript
+pi.on("input", async (event, ctx) => {
+  // Transform user input
+  if (event.text.startsWith("@")) {
+    return {
+      action: "transform",
+      text: `Find references to: ${event.text.slice(1)}`,
+    };
+  }
+  
+  // Handle input completely
+  if (event.text === "exit") {
+    ctx.shutdown();
+    return { action: "handled" };
+  }
+  
+  return { action: "continue" };
+});
+```
+
+### Compaction Hooks
+
+```typescript
+pi.on("session_before_compact", async (event, ctx) => {
+  // Custom compaction logic
+  const { preparation, signal } = event;
+  
+  // Generate custom summary
+  const summary = await generateCustomSummary(
+    preparation.messagesToSummarize,
+    signal
+  );
+  
+  return {
+    compaction: {
+      summary,
+      firstKeptEntryId: preparation.firstKeptEntryId,
+      tokensBefore: preparation.tokensBefore,
+      details: { custom: "data" },
+    },
+  };
+});
+
+pi.on("session_compact", async (event, ctx) => {
+  // React to compaction
+  console.log("Compacted", event.compactionEntry.tokensBefore, "tokens");
+});
+```
+
+## Extension Context
+
+All event handlers receive a context object:
+
+```typescript
+interface ExtensionContext {
+  // UI methods (if available)
+  ui: ExtensionUIContext;
+  hasUI: boolean;
+  
+  // Session state
+  cwd: string;
+  sessionManager: ReadonlySessionManager;
+  model: Model | undefined;
+  
+  // Model registry
+  modelRegistry: ModelRegistry;
+  
+  // Agent state
+  isIdle(): boolean;
+  abort(): void;
+  hasPendingMessages(): boolean;
+  
+  // System control
+  shutdown(): void;
+  compact(options?: CompactOptions): void;
+  
+  // Context info
+  getContextUsage(): ContextUsage | undefined;
+  getSystemPrompt(): string;
+}
+```
+
+**Location:** `packages/coding-agent/src/core/extensions/types.ts:261`
+
+## Custom Commands
+
+Register slash commands:
+
+```typescript
+pi.registerCommand("deploy", {
+  description: "Deploy the application",
+  handler: async (args, ctx) => {
+    const environment = args || "production";
+    
+    ctx.ui.notify(`Deploying to ${environment}...`);
+    
+    const result = await ctx.ui.confirm(
+      "Confirm Deployment",
+      `Deploy to ${environment}?`
+    );
+    
+    if (!result) {
+      ctx.ui.notify("Deployment cancelled", "warning");
+      return;
+    }
+    
+    // Execute deployment
+    pi.sendMessage({
+      customType: "deployment",
+      content: `Deploying to ${environment}`,
+      display: true,
+    });
+  },
+});
+```
+
+### Command Context
+
+Command handlers receive an extended context:
+
+```typescript
+interface ExtensionCommandContext extends ExtensionContext {
+  // Wait for agent to finish
+  waitForIdle(): Promise<void>;
+  
+  // Session control
+  newSession(options?: NewSessionOptions): Promise<{ cancelled: boolean }>;
+  fork(entryId: string): Promise<{ cancelled: boolean }>;
+  navigateTree(targetId: string, options?: NavigateOptions): Promise<{ cancelled: boolean }>;
+  switchSession(sessionPath: string): Promise<{ cancelled: boolean }>;
+  
+  // Reload resources
+  reload(): Promise<void>;
+}
+```
+
+## UI Integration
+
+### Dialogs
+
+```typescript
+pi.registerCommand("select-env", {
+  handler: async (args, ctx) => {
+    const env = await ctx.ui.select(
+      "Select Environment",
+      ["development", "staging", "production"]
+    );
+    
+    if (env) {
+      await pi.sendMessage({
+        customType: "env_change",
+        content: `Environment set to: ${env}`,
+        display: true,
+      });
+    }
+  },
+});
+```
+
+### Status Bar
+
+```typescript
+pi.on("session_start", async (event, ctx) => {
+  // Set status in footer
+  ctx.ui.setStatus("my-extension", "Ready");
+});
+
+pi.on("agent_start", async (event, ctx) => {
+  ctx.ui.setStatus("my-extension", "Processing...");
+});
+
+pi.on("agent_end", async (event, ctx) => {
+  ctx.ui.setStatus("my-extension", "Ready");
+});
+```
+
+### Widgets
+
+```typescript
+import { box, text, list } from "@mariozechner/pi-tui";
+
+pi.on("session_start", async (event, ctx) => {
+  // Simple text widget
+  ctx.ui.setWidget("info", ["Custom info widget", "Line 2"]);
+  
+  // Custom component widget
+  ctx.ui.setWidget("stats", (tui, theme) => {
+    return box(
+      { border: "single", borderColor: theme.colors.primary },
+      list([
+        text("Tool calls: 42", { color: theme.colors.text }),
+        text("Tokens: 12345", { color: theme.colors.text }),
+      ])
+    );
+  });
+});
+```
+
+### Custom Messages
+
+Extensions can send custom message types with custom rendering:
+
+```typescript
+pi.registerMessageRenderer("deployment", (message, options, theme) => {
+  const { environment, status } = message.details;
+  const color = status === "success" ? theme.colors.success : theme.colors.error;
+  
+  return box(
+    { border: "single", borderColor: color },
+    text(`Deployment to ${environment}: ${status}`, { color })
+  );
+});
+
+pi.sendMessage({
+  customType: "deployment",
+  content: "Deployment completed",
+  display: true,
+  details: { environment: "production", status: "success" },
+});
+```
+
+## State Persistence
+
+Extensions can persist state across sessions:
+
+```typescript
+interface MyState {
+  counter: number;
+  lastAction: string;
+}
+
+pi.on("session_start", async (event, ctx) => {
+  // Restore state from session entries
+  const entries = ctx.sessionManager.getEntries();
+  const myEntries = entries.filter(
+    e => e.type === "custom" && e.customType === "my-extension"
+  );
+  
+  const state: MyState = myEntries.length > 0
+    ? myEntries[myEntries.length - 1].data
+    : { counter: 0, lastAction: "none" };
+  
+  console.log("Restored state:", state);
+});
+
+pi.on("turn_end", async (event, ctx) => {
+  // Persist state after each turn
+  const state: MyState = {
+    counter: getCurrentCounter(),
+    lastAction: event.message.role,
+  };
+  
+  pi.appendEntry("my-extension", state);
+});
+```
+
+## Custom Providers
+
+Register custom LLM providers:
+
+```typescript
+pi.registerProvider("my-proxy", {
+  baseUrl: "https://proxy.example.com",
+  apiKey: "PROXY_API_KEY",
+  api: "anthropic-messages",
+  models: [
+    {
+      id: "claude-sonnet-4-20250514",
+      name: "Claude 4 Sonnet (proxy)",
+      reasoning: false,
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200000,
+      maxTokens: 16384,
+    },
+  ],
+});
+```
+
+### OAuth Providers
+
+```typescript
+pi.registerProvider("corporate-ai", {
+  baseUrl: "https://ai.corp.com",
+  api: "openai-responses",
+  models: [...],
+  oauth: {
+    name: "Corporate AI (SSO)",
+    async login(callbacks) {
+      // Implement OAuth login flow
+      const authUrl = "https://ai.corp.com/oauth/authorize";
+      callbacks.onAuthUrl(authUrl);
+      
+      // Wait for callback
+      const code = await waitForCallback();
+      const credentials = await exchangeCode(code);
+      
+      return credentials;
+    },
+    async refreshToken(credentials) {
+      // Refresh expired token
+      return await refreshCredentials(credentials);
+    },
+    getApiKey(credentials) {
+      return credentials.access_token;
+    },
+  },
+});
+```
+
+## Resource Discovery
+
+Provide custom skills, prompts, and themes:
+
+```typescript
+import { join } from "path";
+
+pi.on("resources_discover", async (event, ctx) => {
+  const extensionDir = "/path/to/extension";
+  
+  return {
+    skillPaths: [
+      join(extensionDir, "skills/code-review.md"),
+      join(extensionDir, "skills/testing.md"),
+    ],
+    promptPaths: [
+      join(extensionDir, "prompts/refactor.md"),
+    ],
+    themePaths: [
+      join(extensionDir, "themes/cyberpunk.json"),
+    ],
+  };
+});
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Handle UI unavailable gracefully">
+    Check `ctx.hasUI` before using UI methods:
+    
+    ```typescript
+    if (ctx.hasUI) {
+      ctx.ui.notify("Task complete");
+    } else {
+      console.log("Task complete");
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Clean up resources on shutdown">
+    Use `session_shutdown` to close connections:
+    
+    ```typescript
+    pi.on("session_shutdown", async (event, ctx) => {
+      await database.close();
+      server.close();
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Use custom entries for state persistence">
+    Don't rely on in-memory state - persist to session:
+    
+    ```typescript
+    pi.appendEntry("my-extension", { state: "data" });
+    ```
+  </Accordion>
+  
+  <Accordion title="Use event bus for extension communication">
+    Extensions can communicate via shared event bus:
+    
+    ```typescript
+    // Extension A
+    pi.events.emit("task:complete", { result: "data" });
+    
+    // Extension B
+    pi.events.on("task:complete", (data) => {
+      console.log("Task completed:", data);
+    });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tools" icon="wrench" href="/concepts/tools">
+    Create custom tools
+  </Card>
+  <Card title="Sessions" icon="folder-tree" href="/concepts/sessions">
+    Session management and branching
+  </Card>
+</CardGroup>

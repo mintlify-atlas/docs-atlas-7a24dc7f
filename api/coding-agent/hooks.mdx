@@ -1,0 +1,670 @@
+---
+title: Extension Hooks
+description: Available lifecycle hooks and event handling patterns
+---
+
+## Hook Registration
+
+Hooks are registered using `pi.on()` in your extension's default export function:
+
+```typescript
+import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
+
+export default function (pi: ExtensionAPI) {
+  pi.on('event_name', async (event, ctx) => {
+    // Handle event
+  });
+}
+```
+
+## Lifecycle Hooks
+
+### Session Lifecycle
+
+#### session_start
+
+Fired on initial session load.
+
+```typescript
+pi.on('session_start', async (event, ctx) => {
+  console.log('Session started');
+});
+```
+
+<ParamField path="event.type" type="'session_start'">
+  Event type
+</ParamField>
+
+#### session_before_switch
+
+Fired before switching to another session. Can cancel the operation.
+
+```typescript
+pi.on('session_before_switch', async (event, ctx) => {
+  if (event.reason === 'new') {
+    const confirm = await ctx.ui.confirm(
+      'New Session',
+      'Start a new session?'
+    );
+    return { cancel: !confirm };
+  }
+});
+```
+
+<ParamField path="event.type" type="'session_before_switch'">
+  Event type
+</ParamField>
+
+<ParamField path="event.reason" type="'new' | 'resume'">
+  Why the switch is happening
+</ParamField>
+
+<ParamField path="event.targetSessionFile" type="string | undefined">
+  Target session file path
+</ParamField>
+
+**Returns:** `{ cancel?: boolean }`
+
+#### session_switch
+
+Fired after switching to another session.
+
+```typescript
+pi.on('session_switch', async (event, ctx) => {
+  console.log(`Switched from ${event.previousSessionFile}`);
+});
+```
+
+<ParamField path="event.type" type="'session_switch'">
+  Event type
+</ParamField>
+
+<ParamField path="event.reason" type="'new' | 'resume'">
+  Why the switch happened
+</ParamField>
+
+<ParamField path="event.previousSessionFile" type="string | undefined">
+  Previous session file path
+</ParamField>
+
+#### session_shutdown
+
+Fired on process exit. Useful for cleanup.
+
+```typescript
+pi.on('session_shutdown', async (event, ctx) => {
+  // Save state, close connections, etc.
+  console.log('Shutting down');
+});
+```
+
+<ParamField path="event.type" type="'session_shutdown'">
+  Event type
+</ParamField>
+
+### Agent Lifecycle
+
+#### before_agent_start
+
+Fired after user submits prompt but before agent loop starts. Can inject custom messages or modify system prompt.
+
+```typescript
+pi.on('before_agent_start', async (event, ctx) => {
+  return {
+    message: {
+      customType: 'reminder',
+      content: [{ type: 'text', text: 'Remember to be concise.' }],
+      display: 'System Reminder',
+    },
+    systemPrompt: event.systemPrompt + '\n\nBe extra helpful.',
+  };
+});
+```
+
+<ParamField path="event.type" type="'before_agent_start'">
+  Event type
+</ParamField>
+
+<ParamField path="event.prompt" type="string">
+  User's submitted prompt
+</ParamField>
+
+<ParamField path="event.images" type="ImageContent[] | undefined">
+  Attached images, if any
+</ParamField>
+
+<ParamField path="event.systemPrompt" type="string">
+  Current system prompt
+</ParamField>
+
+**Returns:** `{ message?: CustomMessage; systemPrompt?: string }`
+
+#### agent_start
+
+Fired when an agent loop starts.
+
+```typescript
+pi.on('agent_start', async (event, ctx) => {
+  console.log('Agent starting');
+});
+```
+
+#### agent_end
+
+Fired when an agent loop ends.
+
+```typescript
+pi.on('agent_end', async (event, ctx) => {
+  console.log(`Agent done, ${event.messages.length} messages`);
+});
+```
+
+<ParamField path="event.type" type="'agent_end'">
+  Event type
+</ParamField>
+
+<ParamField path="event.messages" type="AgentMessage[]">
+  All messages in the conversation
+</ParamField>
+
+#### turn_start
+
+Fired at the start of each turn (LLM request/response cycle).
+
+```typescript
+pi.on('turn_start', async (event, ctx) => {
+  console.log(`Turn ${event.turnIndex} starting at ${event.timestamp}`);
+});
+```
+
+<ParamField path="event.turnIndex" type="number">
+  Zero-based turn index
+</ParamField>
+
+<ParamField path="event.timestamp" type="number">
+  Timestamp (milliseconds since epoch)
+</ParamField>
+
+#### turn_end
+
+Fired at the end of each turn.
+
+```typescript
+pi.on('turn_end', async (event, ctx) => {
+  console.log(`Turn ${event.turnIndex} complete`);
+});
+```
+
+<ParamField path="event.turnIndex" type="number">
+  Zero-based turn index
+</ParamField>
+
+<ParamField path="event.message" type="AgentMessage">
+  The assistant message from this turn
+</ParamField>
+
+<ParamField path="event.toolResults" type="ToolResultMessage[]">
+  Tool results from this turn
+</ParamField>
+
+### Message Hooks
+
+#### message_start
+
+Fired when a message starts (user, assistant, or toolResult).
+
+```typescript
+pi.on('message_start', async (event, ctx) => {
+  console.log(`Message starting: ${event.message.role}`);
+});
+```
+
+<ParamField path="event.message" type="AgentMessage">
+  The message that's starting
+</ParamField>
+
+#### message_update
+
+Fired during assistant message streaming with token-by-token updates.
+
+```typescript
+pi.on('message_update', async (event, ctx) => {
+  if (event.assistantMessageEvent.type === 'text_delta') {
+    process.stdout.write(event.assistantMessageEvent.delta);
+  }
+});
+```
+
+<ParamField path="event.message" type="AgentMessage">
+  The message being updated
+</ParamField>
+
+<ParamField path="event.assistantMessageEvent" type="AssistantMessageEvent">
+  Streaming event (text_delta, tool_call, thinking, etc.)
+</ParamField>
+
+#### message_end
+
+Fired when a message ends.
+
+```typescript
+pi.on('message_end', async (event, ctx) => {
+  console.log('Message complete');
+});
+```
+
+<ParamField path="event.message" type="AgentMessage">
+  The completed message
+</ParamField>
+
+### Tool Hooks
+
+#### tool_call
+
+Fired before a tool executes. Can block execution.
+
+```typescript
+pi.on('tool_call', async (event, ctx) => {
+  if (event.toolName === 'bash' && event.input.command.includes('rm -rf')) {
+    return {
+      block: true,
+      reason: 'Dangerous command blocked by safety extension',
+    };
+  }
+});
+```
+
+<ParamField path="event.type" type="'tool_call'">
+  Event type
+</ParamField>
+
+<ParamField path="event.toolCallId" type="string">
+  Unique ID for this tool call
+</ParamField>
+
+<ParamField path="event.toolName" type="string">
+  Name of the tool being called
+</ParamField>
+
+<ParamField path="event.input" type="Record<string, unknown>">
+  Tool input parameters
+</ParamField>
+
+**Returns:** `{ block?: boolean; reason?: string }`
+
+#### tool_result
+
+Fired after a tool executes. Can modify the result.
+
+```typescript
+pi.on('tool_result', async (event, ctx) => {
+  if (event.toolName === 'bash' && event.isError) {
+    return {
+      content: [
+        ...event.content,
+        { type: 'text', text: '\n[Extension: Check exit code]' },
+      ],
+    };
+  }
+});
+```
+
+<ParamField path="event.type" type="'tool_result'">
+  Event type
+</ParamField>
+
+<ParamField path="event.toolCallId" type="string">
+  Unique ID for this tool call
+</ParamField>
+
+<ParamField path="event.toolName" type="string">
+  Name of the tool
+</ParamField>
+
+<ParamField path="event.input" type="Record<string, unknown>">
+  Tool input parameters
+</ParamField>
+
+<ParamField path="event.content" type="(TextContent | ImageContent)[]">
+  Tool result content
+</ParamField>
+
+<ParamField path="event.details" type="unknown">
+  Tool-specific details
+</ParamField>
+
+<ParamField path="event.isError" type="boolean">
+  Whether the tool execution failed
+</ParamField>
+
+**Returns:** `{ content?: Content[]; details?: unknown; isError?: boolean }`
+
+#### tool_execution_start
+
+Fired when a tool starts executing.
+
+```typescript
+pi.on('tool_execution_start', async (event, ctx) => {
+  console.log(`Tool ${event.toolName} starting`);
+});
+```
+
+<ParamField path="event.toolCallId" type="string">
+  Unique ID for this tool call
+</ParamField>
+
+<ParamField path="event.toolName" type="string">
+  Name of the tool
+</ParamField>
+
+<ParamField path="event.args" type="any">
+  Tool arguments
+</ParamField>
+
+#### tool_execution_update
+
+Fired during tool execution with partial/streaming output.
+
+```typescript
+pi.on('tool_execution_update', async (event, ctx) => {
+  console.log(`Tool ${event.toolName} update:`, event.partialResult);
+});
+```
+
+<ParamField path="event.toolCallId" type="string">
+  Unique ID for this tool call
+</ParamField>
+
+<ParamField path="event.toolName" type="string">
+  Name of the tool
+</ParamField>
+
+<ParamField path="event.args" type="any">
+  Tool arguments
+</ParamField>
+
+<ParamField path="event.partialResult" type="any">
+  Partial result from the tool
+</ParamField>
+
+#### tool_execution_end
+
+Fired when a tool finishes executing.
+
+```typescript
+pi.on('tool_execution_end', async (event, ctx) => {
+  console.log(`Tool ${event.toolName} ${event.isError ? 'failed' : 'succeeded'}`);
+});
+```
+
+<ParamField path="event.toolCallId" type="string">
+  Unique ID for this tool call
+</ParamField>
+
+<ParamField path="event.toolName" type="string">
+  Name of the tool
+</ParamField>
+
+<ParamField path="event.result" type="any">
+  Final result
+</ParamField>
+
+<ParamField path="event.isError" type="boolean">
+  Whether execution failed
+</ParamField>
+
+### Context Hooks
+
+#### context
+
+Fired before each LLM call. Can modify messages sent to the model.
+
+```typescript
+pi.on('context', async (event, ctx) => {
+  // Add a system reminder before every LLM call
+  return {
+    messages: [
+      ...event.messages,
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Remember to cite sources.' }],
+      },
+    ],
+  };
+});
+```
+
+<ParamField path="event.type" type="'context'">
+  Event type
+</ParamField>
+
+<ParamField path="event.messages" type="AgentMessage[]">
+  Messages about to be sent to the LLM
+</ParamField>
+
+**Returns:** `{ messages?: AgentMessage[] }`
+
+### Input Hooks
+
+#### input
+
+Fired when user input is received, before agent processing. Can transform or handle input.
+
+```typescript
+pi.on('input', async (event, ctx) => {
+  // Transform input
+  if (event.text.startsWith('!!')) {
+    return {
+      action: 'transform',
+      text: event.text.slice(2).toUpperCase(),
+    };
+  }
+  
+  // Handle completely (don't pass to agent)
+  if (event.text === '/quit') {
+    ctx.shutdown();
+    return { action: 'handled' };
+  }
+  
+  // Continue normally
+  return { action: 'continue' };
+});
+```
+
+<ParamField path="event.type" type="'input'">
+  Event type
+</ParamField>
+
+<ParamField path="event.text" type="string">
+  Input text
+</ParamField>
+
+<ParamField path="event.images" type="ImageContent[] | undefined">
+  Attached images
+</ParamField>
+
+<ParamField path="event.source" type="'interactive' | 'rpc' | 'extension'">
+  Where the input came from
+</ParamField>
+
+**Returns:** `{ action: 'continue' } | { action: 'transform'; text: string; images?: ImageContent[] } | { action: 'handled' }`
+
+#### user_bash
+
+Fired when user executes a bash command via `!` or `!!` prefix.
+
+```typescript
+pi.on('user_bash', async (event, ctx) => {
+  console.log(`User bash: ${event.command}`);
+  console.log(`Exclude from context: ${event.excludeFromContext}`);
+});
+```
+
+<ParamField path="event.type" type="'user_bash'">
+  Event type
+</ParamField>
+
+<ParamField path="event.command" type="string">
+  Command to execute
+</ParamField>
+
+<ParamField path="event.excludeFromContext" type="boolean">
+  True if `!!` prefix was used (excluded from LLM context)
+</ParamField>
+
+<ParamField path="event.cwd" type="string">
+  Current working directory
+</ParamField>
+
+**Returns:** `{ operations?: BashOperations; result?: BashResult }`
+
+### Model Hooks
+
+#### model_select
+
+Fired when a new model is selected.
+
+```typescript
+pi.on('model_select', async (event, ctx) => {
+  console.log(`Model changed: ${event.previousModel?.id} → ${event.model.id}`);
+  console.log(`Source: ${event.source}`);
+});
+```
+
+<ParamField path="event.type" type="'model_select'">
+  Event type
+</ParamField>
+
+<ParamField path="event.model" type="Model<any>">
+  New model
+</ParamField>
+
+<ParamField path="event.previousModel" type="Model<any> | undefined">
+  Previous model
+</ParamField>
+
+<ParamField path="event.source" type="'set' | 'cycle' | 'restore'">
+  How the model was selected
+</ParamField>
+
+### Resource Hooks
+
+#### resources_discover
+
+Fired after `session_start` to allow extensions to provide additional resource paths.
+
+```typescript
+pi.on('resources_discover', async (event, ctx) => {
+  return {
+    skillPaths: ['/path/to/custom-skill.md'],
+    promptPaths: ['/path/to/custom-prompt.md'],
+    themePaths: ['/path/to/custom-theme.json'],
+  };
+});
+```
+
+<ParamField path="event.type" type="'resources_discover'">
+  Event type
+</ParamField>
+
+<ParamField path="event.cwd" type="string">
+  Current working directory
+</ParamField>
+
+<ParamField path="event.reason" type="'startup' | 'reload'">
+  Why resources are being discovered
+</ParamField>
+
+**Returns:** `{ skillPaths?: string[]; promptPaths?: string[]; themePaths?: string[] }`
+
+## Hook Patterns
+
+### Stateful Extensions
+
+Use `pi.appendEntry()` to persist state across sessions:
+
+```typescript
+interface MyState {
+  counter: number;
+}
+
+let counter = 0;
+
+pi.on('session_start', async (event, ctx) => {
+  // Restore state from session
+  const entries = ctx.sessionManager.getBranch();
+  for (const entry of entries) {
+    if (entry.type === 'custom' && entry.customType === 'my-extension-state') {
+      const data = entry.data as MyState;
+      counter = data.counter;
+    }
+  }
+});
+
+pi.on('agent_end', async (event, ctx) => {
+  counter++;
+  pi.appendEntry<MyState>('my-extension-state', { counter });
+});
+```
+
+### Blocking Tool Execution
+
+Use `tool_call` to implement safety checks:
+
+```typescript
+pi.on('tool_call', async (event, ctx) => {
+  if (event.toolName === 'bash') {
+    const dangerous = ['rm -rf /', 'dd if=', 'mkfs'];
+    const input = event.input as { command: string };
+    
+    if (dangerous.some(cmd => input.command.includes(cmd))) {
+      const confirm = await ctx.ui.confirm(
+        'Dangerous Command',
+        `Execute: ${input.command}?`
+      );
+      
+      if (!confirm) {
+        return { block: true, reason: 'User cancelled' };
+      }
+    }
+  }
+});
+```
+
+### Logging Extension
+
+Log all agent activity:
+
+```typescript
+import { writeFileSync, appendFileSync } from 'fs';
+
+const logFile = '/tmp/pi-agent.log';
+
+pi.on('session_start', () => {
+  writeFileSync(logFile, `Session started: ${new Date().toISOString()}\n`);
+});
+
+pi.on('tool_call', async (event) => {
+  appendFileSync(logFile, `[${event.toolName}] ${JSON.stringify(event.input)}\n`);
+});
+
+pi.on('agent_end', async (event) => {
+  appendFileSync(logFile, `Turn complete: ${event.messages.length} messages\n`);
+});
+```
+
+### Auto-commit on Exit
+
+Automatically commit changes when exiting:
+
+```typescript
+pi.on('session_shutdown', async (event, ctx) => {
+  const { stdout } = await ctx.exec('git', ['status', '--porcelain']);
+  
+  if (stdout.trim()) {
+    await ctx.exec('git', ['add', '-A']);
+    await ctx.exec('git', ['commit', '-m', 'Auto-commit on pi exit']);
+    console.log('Changes committed');
+  }
+});
+```
